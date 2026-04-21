@@ -223,11 +223,12 @@ const TR=({label,vals,bold,dim,indent,green,borderTop,hi})=>(
 
 // ── Inputs ───────────────────────────────────────────────────────────────────
 function InputsSection({cfg,setCfg,co,setCo}){
-  const C=(k,v)=>setCfg(p=>({...p,[k]:parseFloat(v)||0}));
-  const O=(k,v)=>setCo(p=>({...p,[k]:parseFloat(v)||0}));
+  const C=(k,v)=>setCfg(p=>({...p,[k]:v===''?0:parseFloat(v)||0}));
+  const O=(k,v)=>setCo(p=>({...p,[k]:v===''?0:parseFloat(v)||0}));
   const N=({k,label,min,max,step,src='cfg'})=>(
     <div><div className="ilabel">{label}</div>
       <input type="number" min={min} max={max} step={step||0.1} value={src==='co'?co[k]:cfg[k]}
+        onFocus={e=>e.target.select()}
         onChange={e=>src==='co'?O(k,e.target.value):C(k,e.target.value)}/>
     </div>
   );
@@ -1571,6 +1572,308 @@ function CompsSection({lbo, dcf, cfg, co}){
   );
 }
 
+
+// ── Black-Scholes Engine ─────────────────────────────────────────────────────
+function normCDF(x){
+  const t=1/(1+0.2316419*Math.abs(x));
+  const d=0.3989422820*Math.exp(-x*x/2);
+  const poly=t*(0.3193815+t*(-0.3565638+t*(1.7814780+t*(-1.8212560+t*1.3302744))));
+  return x>=0?1-d*poly:d*poly;
+}
+function normPDF(x){return Math.exp(-x*x/2)/Math.sqrt(2*Math.PI);}
+
+function buildBS(S,K,T,r,sigma,q=0){
+  if(T<=0||sigma<=0||S<=0||K<=0)return null;
+  const d1=(Math.log(S/K)+(r-q+sigma*sigma/2)*T)/(sigma*Math.sqrt(T));
+  const d2=d1-sigma*Math.sqrt(T);
+  const Nd1=normCDF(d1),Nd2=normCDF(d2);
+  const Nnd1=normCDF(-d1),Nnd2=normCDF(-d2);
+  const call=S*Math.exp(-q*T)*Nd1-K*Math.exp(-r*T)*Nd2;
+  const put=K*Math.exp(-r*T)*Nnd2-S*Math.exp(-q*T)*Nnd1;
+  const delta_c=Math.exp(-q*T)*Nd1;
+  const delta_p=Math.exp(-q*T)*(Nd1-1);
+  const gamma=Math.exp(-q*T)*normPDF(d1)/(S*sigma*Math.sqrt(T));
+  const vega=S*Math.exp(-q*T)*normPDF(d1)*Math.sqrt(T)/100;
+  const theta_c=(-S*Math.exp(-q*T)*normPDF(d1)*sigma/(2*Math.sqrt(T))-r*K*Math.exp(-r*T)*Nd2+q*S*Math.exp(-q*T)*Nd1)/365;
+  const theta_p=(-S*Math.exp(-q*T)*normPDF(d1)*sigma/(2*Math.sqrt(T))+r*K*Math.exp(-r*T)*Nnd2-q*S*Math.exp(-q*T)*Nnd1)/365;
+  const rho_c=K*T*Math.exp(-r*T)*Nd2/100;
+  const rho_p=-K*T*Math.exp(-r*T)*Nnd2/100;
+  return{call,put,delta_c,delta_p,gamma,vega,theta_c,theta_p,rho_c,rho_p,d1,d2,Nd1,Nd2};
+}
+
+function BSSection(){
+  const[S,setS]=useState(100);
+  const[K,setK]=useState(100);
+  const[T,setT]=useState(90);   // days
+  const[r,setR]=useState(5.0);  // %
+  const[sigma,setSigma]=useState(25); // %
+  const[q,setQ]=useState(0);    // dividend yield %
+  const[optType,setOptType]=useState('call');
+  const[showGreeks,setShowGreeks]=useState(true);
+
+  const Ty=T/365;
+  const bs=useMemo(()=>buildBS(S,K,Ty,r/100,sigma/100,q/100),[S,K,Ty,r,sigma,q]);
+
+  const moneyness=bs?((S/K-1)*100):0;
+  const isITM=optType==='call'?S>K:S<K;
+  const intrinsic=optType==='call'?Math.max(0,S-K):Math.max(0,K-S);
+  const price=bs?(optType==='call'?bs.call:bs.put):0;
+  const timeVal=Math.max(0,price-intrinsic);
+
+  // Payoff diagram data — price at expiry across spot range
+  const spots=[];
+  const sMin=S*0.5, sMax=S*1.5, steps=60;
+  for(let i=0;i<=steps;i++){
+    const sp=sMin+(sMax-sMin)*(i/steps);
+    const payoff=optType==='call'?Math.max(0,sp-K):Math.max(0,K-sp);
+    const pnl=payoff-price;
+    const bsNow=buildBS(sp,K,Ty,r/100,sigma/100,q/100);
+    const currentVal=bsNow?(optType==='call'?bsNow.call:bsNow.put):0;
+    spots.push({sp,payoff,pnl,currentVal,pnlNow:currentVal-price});
+  }
+
+  // Vol surface — price vs sigma
+  const vols=[];
+  for(let i=0;i<=20;i++){
+    const v=5+i*3;
+    const b=buildBS(S,K,Ty,r/100,v/100,q/100);
+    vols.push({v,price:b?(optType==='call'?b.call:b.put):0});
+  }
+
+  const InpRow=({label,val,set,min,max,step,fmt})=>(
+    <div style={{marginBottom:14}}>
+      <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
+        <span style={{fontSize:10,color:'#6e7681',textTransform:'uppercase',letterSpacing:'.06em'}}>{label}</span>
+        <span style={{fontFamily:'DM Mono',fontSize:12,color:'#e6edf3',fontWeight:500}}>{fmt?fmt(val):val}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={val} onChange={e=>set(parseFloat(e.target.value))}
+        style={{width:'100%'}}/>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:2}}>
+        <span style={{fontSize:9,color:'#484f58'}}>{min}</span>
+        <span style={{fontSize:9,color:'#484f58'}}>{max}</span>
+      </div>
+    </div>
+  );
+
+  // SVG payoff chart
+  const W=500,H=140,pad=30;
+  const allPnl=[...spots.map(s=>s.pnl),...spots.map(s=>s.pnlNow)];
+  const minPnl=Math.min(...allPnl,-price*1.1), maxPnl=Math.max(...allPnl,price*0.5);
+  const range=maxPnl-minPnl||1;
+  const toX=sp=>pad+(sp-sMin)/(sMax-sMin)*(W-pad*2);
+  const toY=v=>H-pad-(v-minPnl)/range*(H-pad*2);
+  const zeroY=toY(0);
+  const expiryPts=spots.map(s=>`${toX(s.sp)},${toY(s.pnl)}`).join(' ');
+  const nowPts=spots.map(s=>`${toX(s.sp)},${toY(s.pnlNow)}`).join(' ');
+
+  // Vol sensitivity chart
+  const VW=220,VH=80;
+  const maxVPrice=Math.max(...vols.map(v=>v.price))||1;
+  const volPts=vols.map((v,i)=>`${(i/20)*VW},${VH-(v.price/maxVPrice)*VH}`).join(' ');
+
+  const greek=(label,val,fmt,desc,color='#c9d1d9')=>(
+    <div style={{padding:'10px 12px',background:'#0d1117',borderRadius:7}}>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>{label}</div>
+      <div style={{fontFamily:'DM Mono',fontSize:16,fontWeight:600,color,marginBottom:3}}>{fmt(val)}</div>
+      <div style={{fontSize:10,color:'#6e7681',lineHeight:1.4}}>{desc}</div>
+    </div>
+  );
+
+  return(
+    <div className="sec">
+      <h2 className="sec-title">Black-Scholes Option Pricer</h2>
+
+      <div className="g2">
+        {/* Left: inputs */}
+        <div className="card cp" style={{marginBottom:0}}>
+          <div className="igtitle">Option Parameters</div>
+
+          {/* Option type toggle */}
+          <div style={{display:'flex',gap:6,marginBottom:18}}>
+            {[['call','Call Option','#3fb950'],['put','Put Option','#f85149']].map(([t,l,c])=>(
+              <button key={t} onClick={()=>setOptType(t)} style={{flex:1,padding:'8px 0',borderRadius:6,border:optType===t?`1px solid ${c}`:'1px solid #30363d',background:optType===t?`${c}18`:'transparent',color:optType===t?c:'#6e7681',fontSize:12,fontWeight:700,cursor:'pointer',textTransform:'uppercase',letterSpacing:'.05em',transition:'all .12s'}}>{l}</button>
+            ))}
+          </div>
+
+          <InpRow label="Stock Price (S)" val={S} set={setS} min={10} max={500} step={1} fmt={v=>`$${v}`}/>
+          <InpRow label="Strike Price (K)" val={K} set={setK} min={10} max={500} step={1} fmt={v=>`$${v}`}/>
+          <InpRow label="Days to Expiry (T)" val={T} set={setT} min={1} max={730} step={1} fmt={v=>`${v}d (${(v/365).toFixed(2)}yr)`}/>
+          <InpRow label="Implied Volatility (σ)" val={sigma} set={setSigma} min={1} max={150} step={0.5} fmt={v=>`${v}%`}/>
+          <InpRow label="Risk-Free Rate (r)" val={r} set={setR} min={0} max={15} step={0.1} fmt={v=>`${v}%`}/>
+          <InpRow label="Dividend Yield (q)" val={q} set={setQ} min={0} max={10} step={0.1} fmt={v=>`${v}%`}/>
+
+          {/* Moneyness indicator */}
+          <div style={{marginTop:8,padding:'10px 12px',background:isITM?'rgba(63,185,80,.1)':'rgba(248,81,73,.1)',borderRadius:7,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <span style={{fontSize:11,color:'#8b949e'}}>{isITM?'In the Money':'Out of the Money'}</span>
+            <span style={{fontFamily:'DM Mono',fontSize:13,fontWeight:600,color:isITM?'#3fb950':'#f85149'}}>{moneyness>=0?'+':''}{moneyness.toFixed(1)}%</span>
+          </div>
+        </div>
+
+        {/* Right: price output */}
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+          {/* Big price card */}
+          <div className="card cp" style={{marginBottom:0}}>
+            <div className="igtitle">{optType==='call'?'Call':'Put'} Option Price</div>
+            <div style={{textAlign:'center',padding:'16px 0'}}>
+              <div style={{fontFamily:'DM Mono',fontSize:48,fontWeight:700,color:optType==='call'?'#3fb950':'#f85149',lineHeight:1}}>${price.toFixed(2)}</div>
+              <div style={{fontSize:11,color:'#6e7681',marginTop:6}}>per share</div>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:8}}>
+              {[{l:'Intrinsic Value',v:`$${intrinsic.toFixed(2)}`,c:'#c9d1d9'},{l:'Time Value',v:`$${timeVal.toFixed(2)}`,c:'#58a6ff'},{l:'Break-Even',v:`$${(optType==='call'?K+price:K-price).toFixed(2)}`,c:'#d29922'},{l:'% of Stock',v:`${((price/S)*100).toFixed(1)}%`,c:'#8b949e'}].map(k=>(
+                <div key={k.l} style={{padding:'8px 10px',background:'#0d1117',borderRadius:6}}>
+                  <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.05em'}}>{k.l}</div>
+                  <div style={{fontFamily:'DM Mono',fontSize:14,color:k.c,fontWeight:600,marginTop:2}}>{k.v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Vol sensitivity mini chart */}
+          <div className="card cp" style={{marginBottom:0}}>
+            <div style={{fontSize:9,color:'#6e7681',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:8}}>Price vs Volatility</div>
+            <svg width={VW} height={VH+16} style={{overflow:'visible'}}>
+              <polyline points={volPts} fill="none" stroke={optType==='call'?'#3fb950':'#f85149'} strokeWidth={2} strokeLinejoin="round"/>
+              {/* current vol dot */}
+              {(()=>{const vi=(sigma-5)/3;const vx=(vi/20)*VW;const b=buildBS(S,K,Ty,r/100,sigma/100,q/100);const vp=b?(optType==='call'?b.call:b.put):0;const vy=VH-(vp/maxVPrice)*VH;return<circle cx={vx} cy={vy} r={4} fill={optType==='call'?'#3fb950':'#f85149'}/>;})()}
+              <text x={0} y={VH+14} fontSize={9} fill="#484f58">5%</text>
+              <text x={VW-12} y={VH+14} fontSize={9} fill="#484f58">65%</text>
+              <text x={VW/2} y={VH+14} textAnchor="middle" fontSize={9} fill="#6e7681">σ</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      {/* Payoff diagram */}
+      <div className="card" style={{marginTop:14,marginBottom:14}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'13px 18px 4px'}}>
+          <span style={{fontSize:10,fontWeight:700,color:'#6e7681',textTransform:'uppercase',letterSpacing:'.07em'}}>P&L Diagram</span>
+          <div style={{display:'flex',gap:14,fontSize:10,color:'#6e7681'}}>
+            <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:16,height:2,background:'#58a6ff',display:'inline-block'}}/> At Expiry</span>
+            <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:16,height:2,background:'#d29922',display:'inline-block',opacity:.7}}/> Today (T={T}d)</span>
+            <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:16,height:2,background:'#30363d',display:'inline-block',borderTop:'1px dashed #6e7681'}}/> Break-even</span>
+          </div>
+        </div>
+        <div style={{padding:'4px 18px 16px',overflowX:'auto'}}>
+          <svg width={W} height={H+20} style={{overflow:'visible',minWidth:400}}>
+            {/* zero line */}
+            <line x1={pad} y1={zeroY} x2={W-pad} y2={zeroY} stroke="#30363d" strokeWidth={1}/>
+            {/* break-even line */}
+            {(()=>{const be=optType==='call'?K+price:K-price;const bex=toX(be);return bex>pad&&bex<W-pad?<line x1={bex} y1={pad} x2={bex} y2={H-pad} stroke="#d29922" strokeWidth={1} strokeDasharray="4 3" opacity={.6}/>:null;})()}
+            {/* strike line */}
+            <line x1={toX(K)} y1={pad} x2={toX(K)} y2={H-pad} stroke="#30363d" strokeWidth={1} strokeDasharray="2 4" opacity={.5}/>
+            {/* current price line */}
+            <line x1={toX(S)} y1={pad} x2={toX(S)} y2={H-pad} stroke="#8b949e" strokeWidth={1} strokeDasharray="2 4" opacity={.4}/>
+            {/* today curve */}
+            <polyline points={nowPts} fill="none" stroke="#d29922" strokeWidth={1.5} strokeLinejoin="round" opacity={.7}/>
+            {/* expiry curve */}
+            <polyline points={expiryPts} fill="none" stroke="#58a6ff" strokeWidth={2} strokeLinejoin="round"/>
+            {/* labels */}
+            <text x={toX(K)} y={H-pad+14} textAnchor="middle" fontSize={9} fill="#6e7681">K=${K}</text>
+            <text x={toX(S)} y={pad-4} textAnchor="middle" fontSize={9} fill="#8b949e">S=${S}</text>
+            {/* axes */}
+            <text x={pad-4} y={zeroY+4} textAnchor="end" fontSize={9} fill="#484f58">0</text>
+            <text x={pad-4} y={pad+4} textAnchor="end" fontSize={9} fill="#484f58">${maxPnl.toFixed(0)}</text>
+            <text x={pad-4} y={H-pad+4} textAnchor="end" fontSize={9} fill="#484f58">${minPnl.toFixed(0)}</text>
+          </svg>
+        </div>
+      </div>
+
+      {/* Greeks */}
+      {bs&&(
+        <div className="card cp" style={{marginBottom:14}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+            <div className="igtitle" style={{marginBottom:0}}>Option Greeks</div>
+            <button onClick={()=>setShowGreeks(g=>!g)} style={{padding:'3px 10px',borderRadius:5,border:'1px solid #30363d',background:'transparent',color:'#6e7681',fontSize:10,cursor:'pointer'}}>{showGreeks?'Hide':'Show'}</button>
+          </div>
+          {showGreeks&&(
+            <>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:10}}>
+              {greek('Delta (Δ)',optType==='call'?bs.delta_c:bs.delta_p,v=>v.toFixed(4),'$1 stock move → option price change',optType==='call'?'#3fb950':'#f85149')}
+              {greek('Gamma (Γ)',bs.gamma,v=>v.toFixed(4),'Rate of delta change per $1 stock move','#58a6ff')}
+              {greek('Vega (ν)',bs.vega,v=>v.toFixed(4),'1% vol change → option price change','#d29922')}
+              {greek('Theta (Θ)',optType==='call'?bs.theta_c:bs.theta_p,v=>v.toFixed(4),'Daily time decay (negative = loses value)','#f85149')}
+              {greek('Rho (ρ)',optType==='call'?bs.rho_c:bs.rho_p,v=>v.toFixed(4),'1% rate change → option price change','#8b949e')}
+              {greek('IV',sigma,v=>`${v}%`,'Implied volatility input','#c9d1d9')}
+            </div>
+            <div style={{padding:'10px 12px',background:'rgba(45,125,210,.06)',borderRadius:6,fontSize:11,color:'#6e7681',lineHeight:1.6}}>
+              <strong style={{color:'#58a6ff'}}>Quick guide: </strong>
+              Delta near ±1 = deep ITM. Gamma highest ATM. Theta most negative near expiry. High vega = sensitive to vol changes.
+              {optType==='call'?` Call delta ${bs.delta_c.toFixed(2)} → roughly ${(bs.delta_c*100).toFixed(0)}% probability of expiring ITM.`:` Put delta ${bs.delta_p.toFixed(2)} → roughly ${(Math.abs(bs.delta_p)*100).toFixed(0)}% probability of expiring ITM.`}
+            </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Put-Call Parity check */}
+      {bs&&(
+        <div className="card cp">
+          <div className="igtitle">Put-Call Parity</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            {[
+              {l:'Call Price',v:`$${bs.call.toFixed(4)}`,c:'#3fb950'},
+              {l:'Put Price',v:`$${bs.put.toFixed(4)}`,c:'#f85149'},
+              {l:'C - P',v:`$${(bs.call-bs.put).toFixed(4)}`},
+              {l:'S·e^(-qT) - K·e^(-rT)',v:`$${(S*Math.exp(-q/100*Ty)-K*Math.exp(-r/100*Ty)).toFixed(4)}`},
+            ].map(k=>(
+              <div key={k.l} style={{padding:'8px 10px',background:'#0d1117',borderRadius:6}}>
+                <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.05em'}}>{k.l}</div>
+                <div style={{fontFamily:'DM Mono',fontSize:13,color:k.c||'#c9d1d9',fontWeight:500,marginTop:2}}>{k.v}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{marginTop:10,fontSize:10,color:'#484f58'}}>C - P = S·e^(-qT) - K·e^(-rT) confirms no-arbitrage pricing. Values should match within rounding.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Quick Controls Panel ──────────────────────────────────────────────────────
+function QuickControls({cfg,setCfg,co,nav}){
+  const[open,setOpen]=useState(false);
+  if(nav==='inputs')return null; // redundant on inputs page
+  const Sl=({label,k,min,max,step,fmt})=>(
+    <div style={{marginBottom:10}}>
+      <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
+        <span style={{fontSize:9,color:'#8b949e',textTransform:'uppercase',letterSpacing:'.05em'}}>{label}</span>
+        <span style={{fontSize:10,fontFamily:'DM Mono',color:'#e6edf3'}}>{fmt?fmt(cfg[k]):cfg[k]}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={cfg[k]}
+        onChange={e=>setCfg(p=>({...p,[k]:parseFloat(e.target.value)}))}/>
+    </div>
+  );
+  return(
+    <div style={{position:'fixed',bottom:20,right:20,zIndex:300,width:open?260:44}}>
+      {open&&(
+        <div style={{background:'#161b22',border:'1px solid #30363d',borderRadius:10,padding:16,marginBottom:8,boxShadow:'0 8px 32px rgba(0,0,0,.6)'}}>
+          <div style={{fontSize:10,fontWeight:700,color:'#6e7681',textTransform:'uppercase',letterSpacing:'.1em',marginBottom:14}}>Quick Controls</div>
+          <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:8}}>Scenario</div>
+          <div style={{display:'flex',gap:4,marginBottom:14}}>
+            {[['bear','#f85149'],['base','#2d7dd2'],['bull','#3fb950']].map(([s,c])=>(
+              <button key={s} onClick={()=>setCfg(p=>({...p,scenario:s}))}
+                style={{flex:1,padding:'5px 0',borderRadius:5,border:cfg.scenario===s?`1px solid ${c}`:'1px solid #30363d',background:cfg.scenario===s?`${c}22`:'transparent',color:cfg.scenario===s?c:'#6e7681',cursor:'pointer',fontSize:10,fontWeight:700,textTransform:'capitalize'}}>{s}</button>
+            ))}
+          </div>
+          <Sl label="Entry Multiple" k="entryMultiple" min={6} max={13} step={.25} fmt={v=>`${v.toFixed(2)}x`}/>
+          <Sl label="Exit Multiple"  k="exitMultiple"  min={6} max={13} step={.25} fmt={v=>`${v.toFixed(2)}x`}/>
+          <Sl label="Exit Year"      k="exitYear"       min={3} max={7}  step={1}   fmt={v=>`Year ${v}`}/>
+          <Sl label="Leverage"       k="leverageTurns"  min={3} max={7}  step={.25} fmt={v=>`${v.toFixed(2)}x`}/>
+          <Sl label="Rev Growth"     k="revenueGrowthBase" min={2} max={15} step={.5} fmt={v=>`${v.toFixed(1)}%`}/>
+          <Sl label="EBITDA Margin"  k="ebitdaMarginBase"  min={10} max={35} step={.5} fmt={v=>`${v.toFixed(1)}%`}/>
+          <div style={{borderTop:'1px solid #21262d',paddingTop:10,marginTop:4,fontSize:9,color:'#484f58'}}>
+            LTM EBITDA: <span style={{fontFamily:'DM Mono',color:'#6e7681'}}>${co.ltmEBITDA}M</span> &nbsp;|&nbsp;
+            LTM Rev: <span style={{fontFamily:'DM Mono',color:'#6e7681'}}>${co.ltmRevenue}M</span>
+          </div>
+        </div>
+      )}
+      <button onClick={()=>setOpen(o=>!o)} style={{width:44,height:44,borderRadius:10,border:'1px solid #30363d',background:open?'#2d7dd2':'#161b22',color:open?'#fff':'#8b949e',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 4px 16px rgba(0,0,0,.5)',marginLeft:'auto'}}>
+        {open?'✕':'⚙'}
+      </button>
+    </div>
+  );
+}
+
 // ── Tweaks Panel ─────────────────────────────────────────────────────────────
 function TweaksPanel({cfg,setCfg,visible}){
   if(!visible)return null;
@@ -1621,6 +1924,7 @@ const NAV=[
   {id:'scenarios',label:'Scenario Compare', icon:'≈', group:'DCF'},
   {id:'comps',    label:'Public Comps',     icon:'⊜', group:'DCF'},
   {id:'ma',       label:'M&A DCF',          icon:'⊗', group:'M&A'},
+  {id:'bs',        label:'Black-Scholes',      icon:'◬', group:'Options'},
 ];
 const GROUPS=[...new Set(NAV.map(n=>n.group))];
 
@@ -1667,6 +1971,7 @@ function App(){
     scenarios:()=><ScenSection cfg={cfg} co={co}/>,
     comps:    ()=><CompsSection lbo={lbo} dcf={dcf} cfg={cfg} co={co}/>,
     ma:       ()=><MASection cfg={cfg} co={co} dcf={dcf} maC={maC} setMaC={setMaC}/>,
+    bs:       ()=><BSSection/>,
   };
   const sections = Object.fromEntries(Object.entries(sectionMap).map(([k,fn])=>[k, nav===k ? fn() : null]));
 
@@ -1708,6 +2013,7 @@ function App(){
     </div>
     <div className="main">{sections[nav]}</div>
     <TweaksPanel cfg={cfg} setCfg={setCfg} visible={tweaks}/>
+    <QuickControls cfg={cfg} setCfg={setCfg} co={co} nav={nav}/>
   </>);
 }
 
