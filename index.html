@@ -40,8 +40,8 @@ button{font-family:'DM Sans',sans-serif}
 .mkl{font-size:10px;color:#6e7681}.mkv{font-size:11px;font-family:'DM Mono',monospace;font-weight:500;color:#e6edf3}
 .main{flex:1;overflow-y:auto;padding:26px 30px 60px}
 .sec{max-width:860px}
-.sec-title{font-size:16px;font-weight:600;color:#e6edf3;margin-bottom:16px;display:flex;align-items:center;gap:10px}
-.sec-title::after{content:'';flex:1;height:1px;background:#21262d}
+.sec-title{font-size:15px;font-weight:600;color:#e6edf3;margin-bottom:18px;display:flex;align-items:center;gap:10px;letter-spacing:-.02em}
+.sec-title::after{content:'';flex:1;height:1px;background:linear-gradient(to right,#21262d,transparent)}
 .card{background:#161b22;border:1px solid #21262d;border-radius:10px;overflow:hidden;margin-bottom:14px}
 .cp{padding:14px 18px}
 .clabel{font-size:10px;font-weight:700;color:#6e7681;text-transform:uppercase;letter-spacing:.07em;padding:13px 18px 9px}
@@ -65,7 +65,21 @@ td:not(:first-child){text-align:right;font-family:'DM Mono',monospace}
 .irow{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}
 .tag{display:inline-block;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;letter-spacing:.04em}
 .tag-b{background:rgba(45,125,210,.15);color:#58a6ff}
-.tag-y{background:rgba(210,153,34,.15);color:#d29922}</style>
+.tag-y{background:rgba(210,153,34,.15);color:#d29922}
+.co-badge:hover{background:rgba(255,255,255,.03);border-radius:8px;}
+.co-badge{transition:background .15s;padding:4px;margin:-4px;}
+.card{transition:border-color .15s;}
+.nav-item{letter-spacing:.01em;}
+.kc:hover{border-color:#30363d;transition:border-color .15s;}
+input[type=number]:hover{border-color:#484f58;}
+.sec-title{letter-spacing:-.01em;}
+tr:hover td{background:rgba(255,255,255,.018)!important;}
+.card{box-shadow:0 1px 3px rgba(0,0,0,.3);}
+.sidebar{box-shadow:2px 0 12px rgba(0,0,0,.4);}
+.ptab{letter-spacing:.01em;}
+.nav-group-label{margin-top:4px;}
+.kv{line-height:1;}
+.igtitle{color:#c9d1d9;letter-spacing:-.01em;}</style>
 <template id="__bundler_thumbnail">
 <svg viewBox="0 0 80 56" xmlns="http://www.w3.org/2000/svg">
   <rect width="80" height="56" fill="#0d1117"/>
@@ -1883,34 +1897,26 @@ function QuickControls({cfg,setCfg,co,setCo,maC,setMaC,nav}){
   const dcfTabs=['dcf'];
   const maTabs=['ma'];
 
-  const ScenRow=()=>(
-    <div style={{display:'flex',gap:4,marginBottom:12}}>
-      {[['bear','#f85149'],['base','#2d7dd2'],['bull','#3fb950']].map(([s,c])=>(
-        <button key={s} onClick={()=>setCfg(p=>({...p,scenario:s}))}
-          style={{flex:1,padding:'5px 0',borderRadius:5,border:cfg.scenario===s?`1px solid ${c}`:'1px solid #30363d',background:cfg.scenario===s?`${c}22`:'transparent',color:cfg.scenario===s?c:'#6e7681',cursor:'pointer',fontSize:10,fontWeight:700,textTransform:'capitalize'}}>{s}</button>
-      ))}
-    </div>
-  );
+
 
   const renderFields=()=>{
     if(lboTabs.includes(nav)) return(<>
-      <ScenRow/>
-      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:7}}>Company (LTM)</div>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.1em',marginBottom:7,paddingBottom:5,borderBottom:'1px solid #21262d'}}>Company (LTM)</div>
       <N label="Revenue ($M)" k="ltmRevenue" min={0} max={10000} step={1} unit="M" src="co"/>
       <N label="EBITDA ($M)" k="ltmEBITDA" min={0} max={5000} step={0.5} unit="M" src="co"/>
       <N label="D&A ($M)" k="ltmDA" min={0} max={1000} step={0.5} unit="M" src="co"/>
       <N label="CapEx ($M)" k="ltmCapex" min={0} max={1000} step={0.5} unit="M" src="co"/>
-      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>Deal Structure</div>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.1em',margin:'12px 0 7px',paddingBottom:5,borderBottom:'1px solid #21262d'}}>Deal Structure</div>
       <N label="Entry EV/EBITDA" k="entryMultiple" min={5} max={15} step={0.25} unit="x"/>
       <N label="Exit EV/EBITDA" k="exitMultiple" min={5} max={15} step={0.25} unit="x"/>
       <N label="Exit Year" k="exitYear" min={3} max={7} step={1} unit="yr"/>
       <N label="Total Leverage" k="leverageTurns" min={2} max={8} step={0.25} unit="x"/>
       <N label="Senior Notes" k="snTurns" min={0} max={4} step={0.25} unit="x"/>
       <N label="Tax Rate" k="taxRate" min={10} max={40} step={1} unit="%"/>
-      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>Debt Terms</div>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.1em',margin:'12px 0 7px',paddingBottom:5,borderBottom:'1px solid #21262d'}}>Debt Terms</div>
       <N label="TLB Spread" k="tlbSpreadBps" min={150} max={700} step={25} unit="bps"/>
       <N label="SN Rate" k="snRate" min={4} max={14} step={0.25} unit="%"/>
-      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>Operating</div>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.1em',margin:'12px 0 7px',paddingBottom:5,borderBottom:'1px solid #21262d'}}>Operating</div>
       <N label="Rev Growth Bear" k="revenueGrowthBear" min={-5} max={20} step={0.5} unit="%"/>
       <N label="Rev Growth Base" k="revenueGrowthBase" min={-5} max={20} step={0.5} unit="%"/>
       <N label="Rev Growth Bull" k="revenueGrowthBull" min={-5} max={20} step={0.5} unit="%"/>
@@ -1924,10 +1930,10 @@ function QuickControls({cfg,setCfg,co,setCo,maC,setMaC,nav}){
       <N label="Equity Risk Prem" k="erp" min={3} max={9} step={0.25} unit="%"/>
       <N label="Cost of Debt" k="costOfDebt" min={3} max={14} step={0.25} unit="%"/>
       <N label="Debt Weight" k="dcfDebtWeight" min={10} max={70} step={5} unit="%"/>
-      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>Terminal Value</div>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.1em',margin:'12px 0 7px',paddingBottom:5,borderBottom:'1px solid #21262d'}}>Terminal Value</div>
       <N label="Terminal Growth" k="termGrowthRate" min={0} max={5} step={0.25} unit="%"/>
       <N label="DCF Exit Multiple" k="dcfExitMultiple" min={5} max={15} step={0.25} unit="x"/>
-      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>Deal Reference</div>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.1em',margin:'12px 0 7px',paddingBottom:5,borderBottom:'1px solid #21262d'}}>Deal Reference</div>
       <N label="Entry Multiple" k="entryMultiple" min={5} max={15} step={0.25} unit="x"/>
       <N label="Tax Rate" k="taxRate" min={10} max={40} step={1} unit="%"/>
     </>);
@@ -1935,17 +1941,17 @@ function QuickControls({cfg,setCfg,co,setCo,maC,setMaC,nav}){
       <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:7}}>Deal Terms</div>
       <N label="Offer Premium" k="offerPremium" min={5} max={80} step={0.5} unit="%" src="ma"/>
       <N label="Cash Consider." k="cashPct" min={0} max={100} step={5} unit="%" src="ma"/>
-      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>Synergies</div>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.1em',margin:'12px 0 7px',paddingBottom:5,borderBottom:'1px solid #21262d'}}>Synergies</div>
       <N label="Cost Syn (% rev)" k="costSynPct" min={0} max={8} step={0.25} unit="%" src="ma"/>
       <N label="Rev Synergies" k="revSynM" min={0} max={150} step={1} unit="$M" src="ma"/>
       <N label="Integ Cost Y1" k="integCostY1" min={0} max={200} step={1} unit="$M" src="ma"/>
       <N label="Integ Cost Y2" k="integCostY2" min={0} max={100} step={1} unit="$M" src="ma"/>
       <N label="Syn Risk Spread" k="synDiscSpread" min={0} max={500} step={25} unit="bps" src="ma"/>
-      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>PPA</div>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.1em',margin:'12px 0 7px',paddingBottom:5,borderBottom:'1px solid #21262d'}}>PPA</div>
       <N label="Tangible Step-Up" k="ppaTangible" min={0} max={300} step={5} unit="$M" src="ma"/>
       <N label="Intangible Step-Up" k="ppaIntangible" min={0} max={400} step={5} unit="$M" src="ma"/>
       <N label="Useful Life" k="ppaUsefulLife" min={3} max={20} step={1} unit="yr" src="ma"/>
-      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>Target (LTM)</div>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.1em',margin:'12px 0 7px',paddingBottom:5,borderBottom:'1px solid #21262d'}}>Target (LTM)</div>
       <N label="Revenue ($M)" k="ltmRevenue" min={0} max={10000} step={1} unit="M" src="co"/>
       <N label="EBITDA ($M)" k="ltmEBITDA" min={0} max={5000} step={0.5} unit="M" src="co"/>
     </>);
@@ -1957,7 +1963,7 @@ function QuickControls({cfg,setCfg,co,setCo,maC,setMaC,nav}){
   return(
     <div style={{position:'fixed',bottom:24,right:24,zIndex:300}}>
       {open&&(
-        <div style={{background:'#161b22',border:'1px solid #2d7dd2',borderRadius:12,padding:16,marginBottom:10,boxShadow:'0 12px 40px rgba(0,0,0,.7)',width:260,maxHeight:'calc(100vh - 80px)',overflowY:'auto'}}>
+        <div style={{background:'#161b22',border:'1px solid #2d7dd2',borderRadius:12,padding:16,marginBottom:10,boxShadow:'0 16px 48px rgba(0,0,0,.8),0 0 0 1px rgba(45,125,210,.1)',width:260,maxHeight:'calc(100vh - 120px)',overflowY:'auto'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,position:'sticky',top:0,background:'#161b22',paddingBottom:10,borderBottom:'1px solid #21262d'}}>
             <span style={{fontSize:10,fontWeight:700,color:'#58a6ff',textTransform:'uppercase',letterSpacing:'.1em'}}>⚡ {tabLabel} Controls</span>
             <button onClick={()=>setOpen(false)} style={{background:'none',border:'none',color:'#6e7681',cursor:'pointer',fontSize:14,padding:0}}>✕</button>
@@ -2081,9 +2087,15 @@ function App(){
   return(<>
     <div className="sidebar">
       <div className="sidebar-top">
-        <div className="co-badge">
+        <div className="co-badge" onClick={()=>setNav('overview')} style={{cursor:'pointer'}} title="Click to edit company info">
           <div className="co-icon">{co.short||'VPC'}</div>
-          <div><div className="co-name">{co.name}</div><div className="co-sub">{co.sector}</div></div>
+          <div>
+            <div className="co-name">{co.name}</div>
+            <div className="co-sub" style={{display:'flex',alignItems:'center',gap:4}}>
+              {co.sector}
+              <span style={{fontSize:8,color:'#484f58',marginLeft:2}}>✎</span>
+            </div>
+          </div>
         </div>
       </div>
       <div className="sidebar-nav">
@@ -2099,6 +2111,10 @@ function App(){
         ))}
       </div>
       <div className="sidebar-kpis">
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8,paddingBottom:8,borderBottom:'1px solid #21262d'}}>
+          <span style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em'}}>Active Scenario</span>
+          <span style={{fontSize:10,fontWeight:700,color:cfg.scenario==='bear'?'#f85149':cfg.scenario==='bull'?'#3fb950':'#58a6ff',textTransform:'capitalize',letterSpacing:'.04em'}}>{cfg.scenario}</span>
+        </div>
         {[{l:'IRR',v:fI(lbo.irr),c:iFg(lbo.irr)},{l:'MOIC',v:fX(lbo.moic),c:mFg(lbo.moic)},{l:'WACC',v:fP(dcf.wacc),c:'#8b949e'},{l:'DCF EV',v:fM(dcf.evGG),c:'#8b949e'}].map(k=>(
           <div key={k.l} className="mini-kpi"><span className="mkl">{k.l}</span><span className="mkv" style={{color:k.c}}>{k.v}</span></div>
         ))}
