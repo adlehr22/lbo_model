@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1017,7 +1017,7 @@ function MASection({ cfg, co, dcf, maC, setMaC }) {
 
       {/* Synergies */}
       <div className="card" style={{marginBottom:14,marginTop:14}}>
-        <div className="clabel">Synergies Build ($M) — {(ramp.map((r,i)=>`Y${i+1}: ${(r*100).toFixed(0)}%`)).join(' → ')} ramp</div>
+        <div className="clabel">Synergies Build ($M) — Y1: 20% → Y2: 55% → Y3: 80% → Y4: 100% → Y5: 100% ramp</div>
         <table>
           <thead><tr><th>($M)</th>{synRows.map(r=><th key={r.year}>Year {r.year}</th>)}<th>Run-Rate</th></tr></thead>
           <tbody>
@@ -1054,7 +1054,7 @@ function MASection({ cfg, co, dcf, maC, setMaC }) {
                     {r.integ>0&&<rect x={x} y={H-integH} width={bW} height={Math.max(integH,1)} fill="#f85149" rx={2} opacity={.75}/>}
                     <text x={x+bW/2} y={H-synH-6} textAnchor="middle" fontSize={10} fill="#8b949e" fontFamily="DM Mono">{r.grossSyn.toFixed(0)}</text>
                     <text x={x+bW/2} y={H+16} textAnchor="middle" fontSize={11} fill="#6e7681">Y{r.year}</text>
-                    <text x={x+bW/2} y={H+28} textAnchor="middle" fontSize={9} fill="#484f58" fontFamily="DM Mono">{(ramp[i]*100).toFixed(0)}%</text>
+                    <text x={x+bW/2} y={H+28} textAnchor="middle" fontSize={9} fill="#484f58" fontFamily="DM Mono">{([20,55,80,100,100][i])}%</text>
                   </g>);
                 })}
                 <line x1={40} y1={H} x2={W-20} y2={H} stroke="#21262d" strokeWidth={1}/>
@@ -1130,10 +1130,10 @@ function MASection({ cfg, co, dcf, maC, setMaC }) {
                   const items=[
                     {l:'ACQ\nStandalone',v:ACQUIRER.eps,type:'start',c:'#d29922'},
                     {l:'Target\nContrib',v:(pf.combNI-ACQUIRER.netIncome)/pf.combShares,type:'mid',c:'#2d7dd2'},
-                    {l:'Synergies\n(net)',v:(pf.yr===1?annualTotSyn*ramp[0]-maC.integCostY1:annualTotSyn*ramp[1]-maC.integCostY2)*(1-cfg.taxRate/100)/pf.combShares,type:'mid',c:'#3fb950'},
+                    {l:'Synergies\n(net)',v:(pf.yr===1?annualTotSyn*0.20-maC.integCostY1:annualTotSyn*0.55-maC.integCostY2)*(1-cfg.taxRate/100)/pf.combShares,type:'mid',c:'#3fb950'},
                     {l:'PPA\nAmort',v:-annualPPAAmort*(1-cfg.taxRate/100)/pf.combShares,type:'mid',c:'#f85149'},
                     {l:'Acq Debt\nInterest',v:-ma.newDebtInt*(1-cfg.taxRate/100)/pf.combShares,type:'mid',c:'#f85149'},
-                    {l:'Dilution\n(new shs)',v:(pf.pfEPS - ACQUIRER.eps) - ((pf.combNI-ACQUIRER.netIncome)/pf.combShares) - (pf.yr===1?annualTotSyn*ramp[0]-maC.integCostY1:annualTotSyn*ramp[1]-maC.integCostY2)*(1-cfg.taxRate/100)/pf.combShares + annualPPAAmort*(1-cfg.taxRate/100)/pf.combShares + ma.newDebtInt*(1-cfg.taxRate/100)/pf.combShares, type:'mid',c:'#8b949e'},
+                    {l:'Dilution\n(new shs)',v:(pf.pfEPS - ACQUIRER.eps) - ((pf.combNI-ACQUIRER.netIncome)/pf.combShares) - (pf.yr===1?annualTotSyn*0.20-maC.integCostY1:annualTotSyn*0.55-maC.integCostY2)*(1-cfg.taxRate/100)/pf.combShares + annualPPAAmort*(1-cfg.taxRate/100)/pf.combShares + ma.newDebtInt*(1-cfg.taxRate/100)/pf.combShares, type:'mid',c:'#8b949e'},
                     {l:'PF EPS',v:pf.pfEPS,type:'end',c:pf.accretion>=0?'#3fb950':'#f85149'},
                   ];
                   let run=ACQUIRER.eps;
