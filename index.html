@@ -1836,55 +1836,127 @@ function BSSection(){
 }
 
 // ── Quick Controls Panel ──────────────────────────────────────────────────────
-function QuickControls({cfg,setCfg,co,nav}){
+function QuickControls({cfg,setCfg,co,setCo,maC,setMaC,nav}){
   const[open,setOpen]=useState(true);
-  if(nav==='inputs'||nav==='bs')return null;
-  const Sl=({label,k,min,max,step,fmt,unit})=>(
-    <div style={{marginBottom:10,display:'grid',gridTemplateColumns:'1fr auto',gap:8,alignItems:'center'}}>
-      <span style={{fontSize:9,color:'#8b949e',textTransform:'uppercase',letterSpacing:'.05em'}}>{label}</span>
+  if(nav==='inputs'||nav==='bs'||nav==='comps')return null;
+
+  // Number input for cfg keys
+  const N=({label,k,min,max,step,unit,src='cfg'})=>{
+    const val=src==='cfg'?cfg[k]:src==='co'?co[k]:maC[k];
+    const set=v=>{
+      if(src==='cfg')setCfg(p=>({...p,[k]:v}));
+      else if(src==='co')setCo(p=>({...p,[k]:v}));
+      else setMaC(p=>({...p,[k]:v}));
+    };
+    return(
+    <div style={{marginBottom:9,display:'grid',gridTemplateColumns:'1fr auto',gap:8,alignItems:'center'}}>
+      <span style={{fontSize:9,color:'#8b949e',textTransform:'uppercase',letterSpacing:'.05em',lineHeight:1.3}}>{label}</span>
       <div style={{display:'flex',alignItems:'center',gap:4}}>
-        <input type="number" min={min} max={max} step={step} value={cfg[k]}
+        <input type="number" min={min} max={max} step={step} value={val}
           onFocus={e=>e.target.select()}
-          onChange={e=>{const v=parseFloat(e.target.value);if(!isNaN(v))setCfg(p=>({...p,[k]:v}));}}
-          style={{background:'#0d1117',border:'1px solid #30363d',color:'#e6edf3',borderRadius:5,padding:'4px 7px',fontFamily:'DM Mono',fontSize:12,width:68,textAlign:'right',outline:'none'}}/>
-        {unit&&<span style={{fontSize:10,color:'#6e7681',minWidth:14}}>{unit}</span>}
+          onChange={e=>{const v=parseFloat(e.target.value);if(!isNaN(v))set(v);}}
+          style={{background:'#0d1117',border:'1px solid #30363d',color:'#e6edf3',borderRadius:5,padding:'4px 7px',fontFamily:'DM Mono',fontSize:12,width:70,textAlign:'right',outline:'none'}}/>
+        {unit&&<span style={{fontSize:10,color:'#6e7681',minWidth:18}}>{unit}</span>}
       </div>
     </div>
+  );};
+
+  // Scenario toggle shown on LBO tabs
+  const lboTabs=['overview','entry','proj','debt','returns','sens','waterfall','scenarios'];
+  const dcfTabs=['dcf'];
+  const maTabs=['ma'];
+
+  const ScenRow=()=>(
+    <div style={{display:'flex',gap:4,marginBottom:12}}>
+      {[['bear','#f85149'],['base','#2d7dd2'],['bull','#3fb950']].map(([s,c])=>(
+        <button key={s} onClick={()=>setCfg(p=>({...p,scenario:s}))}
+          style={{flex:1,padding:'5px 0',borderRadius:5,border:cfg.scenario===s?`1px solid ${c}`:'1px solid #30363d',background:cfg.scenario===s?`${c}22`:'transparent',color:cfg.scenario===s?c:'#6e7681',cursor:'pointer',fontSize:10,fontWeight:700,textTransform:'capitalize'}}>{s}</button>
+      ))}
+    </div>
   );
+
+  const renderFields=()=>{
+    if(lboTabs.includes(nav)) return(<>
+      <ScenRow/>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:7}}>Company (LTM)</div>
+      <N label="Revenue ($M)" k="ltmRevenue" min={0} max={10000} step={1} unit="M" src="co"/>
+      <N label="EBITDA ($M)" k="ltmEBITDA" min={0} max={5000} step={0.5} unit="M" src="co"/>
+      <N label="D&A ($M)" k="ltmDA" min={0} max={1000} step={0.5} unit="M" src="co"/>
+      <N label="CapEx ($M)" k="ltmCapex" min={0} max={1000} step={0.5} unit="M" src="co"/>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>Deal Structure</div>
+      <N label="Entry EV/EBITDA" k="entryMultiple" min={5} max={15} step={0.25} unit="x"/>
+      <N label="Exit EV/EBITDA" k="exitMultiple" min={5} max={15} step={0.25} unit="x"/>
+      <N label="Exit Year" k="exitYear" min={3} max={7} step={1} unit="yr"/>
+      <N label="Total Leverage" k="leverageTurns" min={2} max={8} step={0.25} unit="x"/>
+      <N label="Senior Notes" k="snTurns" min={0} max={4} step={0.25} unit="x"/>
+      <N label="Tax Rate" k="taxRate" min={10} max={40} step={1} unit="%"/>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>Debt Terms</div>
+      <N label="TLB Spread" k="tlbSpreadBps" min={150} max={700} step={25} unit="bps"/>
+      <N label="SN Rate" k="snRate" min={4} max={14} step={0.25} unit="%"/>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>Operating</div>
+      <N label="Rev Growth Bear" k="revenueGrowthBear" min={-5} max={20} step={0.5} unit="%"/>
+      <N label="Rev Growth Base" k="revenueGrowthBase" min={-5} max={20} step={0.5} unit="%"/>
+      <N label="Rev Growth Bull" k="revenueGrowthBull" min={-5} max={20} step={0.5} unit="%"/>
+      <N label="EBITDA Margin" k="ebitdaMarginBase" min={10} max={35} step={0.5} unit="%"/>
+      <N label="Margin Variance" k="ebitdaMarginDelta" min={0} max={5} step={0.25} unit="pp"/>
+    </>);
+    if(dcfTabs.includes(nav)) return(<>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:7}}>WACC Inputs</div>
+      <N label="Risk-Free Rate" k="riskFreeRate" min={1} max={8} step={0.1} unit="%"/>
+      <N label="Unlevered Beta" k="beta" min={0.5} max={2.5} step={0.05}/>
+      <N label="Equity Risk Prem" k="erp" min={3} max={9} step={0.25} unit="%"/>
+      <N label="Cost of Debt" k="costOfDebt" min={3} max={14} step={0.25} unit="%"/>
+      <N label="Debt Weight" k="dcfDebtWeight" min={10} max={70} step={5} unit="%"/>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>Terminal Value</div>
+      <N label="Terminal Growth" k="termGrowthRate" min={0} max={5} step={0.25} unit="%"/>
+      <N label="DCF Exit Multiple" k="dcfExitMultiple" min={5} max={15} step={0.25} unit="x"/>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>Deal Reference</div>
+      <N label="Entry Multiple" k="entryMultiple" min={5} max={15} step={0.25} unit="x"/>
+      <N label="Tax Rate" k="taxRate" min={10} max={40} step={1} unit="%"/>
+    </>);
+    if(maTabs.includes(nav)) return(<>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:7}}>Deal Terms</div>
+      <N label="Offer Premium" k="offerPremium" min={5} max={80} step={0.5} unit="%" src="ma"/>
+      <N label="Cash Consider." k="cashPct" min={0} max={100} step={5} unit="%" src="ma"/>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>Synergies</div>
+      <N label="Cost Syn (% rev)" k="costSynPct" min={0} max={8} step={0.25} unit="%" src="ma"/>
+      <N label="Rev Synergies" k="revSynM" min={0} max={150} step={1} unit="$M" src="ma"/>
+      <N label="Integ Cost Y1" k="integCostY1" min={0} max={200} step={1} unit="$M" src="ma"/>
+      <N label="Integ Cost Y2" k="integCostY2" min={0} max={100} step={1} unit="$M" src="ma"/>
+      <N label="Syn Risk Spread" k="synDiscSpread" min={0} max={500} step={25} unit="bps" src="ma"/>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>PPA</div>
+      <N label="Tangible Step-Up" k="ppaTangible" min={0} max={300} step={5} unit="$M" src="ma"/>
+      <N label="Intangible Step-Up" k="ppaIntangible" min={0} max={400} step={5} unit="$M" src="ma"/>
+      <N label="Useful Life" k="ppaUsefulLife" min={3} max={20} step={1} unit="yr" src="ma"/>
+      <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',margin:'10px 0 7px'}}>Target (LTM)</div>
+      <N label="Revenue ($M)" k="ltmRevenue" min={0} max={10000} step={1} unit="M" src="co"/>
+      <N label="EBITDA ($M)" k="ltmEBITDA" min={0} max={5000} step={0.5} unit="M" src="co"/>
+    </>);
+    return null;
+  };
+
+  const tabLabel={overview:'LBO',entry:'LBO',proj:'LBO',debt:'LBO',returns:'LBO',sens:'LBO',waterfall:'LBO',scenarios:'LBO',dcf:'DCF',ma:'M&A'}[nav]||'';
+
   return(
     <div style={{position:'fixed',bottom:24,right:24,zIndex:300}}>
       {open&&(
-        <div style={{background:'#161b22',border:'1px solid #2d7dd2',borderRadius:12,padding:18,marginBottom:10,boxShadow:'0 12px 40px rgba(0,0,0,.7)',width:252}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-            <span style={{fontSize:10,fontWeight:700,color:'#58a6ff',textTransform:'uppercase',letterSpacing:'.1em'}}>⚡ Quick Controls</span>
+        <div style={{background:'#161b22',border:'1px solid #2d7dd2',borderRadius:12,padding:16,marginBottom:10,boxShadow:'0 12px 40px rgba(0,0,0,.7)',width:260,maxHeight:'calc(100vh - 80px)',overflowY:'auto'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,position:'sticky',top:0,background:'#161b22',paddingBottom:10,borderBottom:'1px solid #21262d'}}>
+            <span style={{fontSize:10,fontWeight:700,color:'#58a6ff',textTransform:'uppercase',letterSpacing:'.1em'}}>⚡ {tabLabel} Controls</span>
             <button onClick={()=>setOpen(false)} style={{background:'none',border:'none',color:'#6e7681',cursor:'pointer',fontSize:14,padding:0}}>✕</button>
           </div>
-          <div style={{display:'flex',gap:4,marginBottom:14}}>
-            {[['bear','#f85149'],['base','#2d7dd2'],['bull','#3fb950']].map(([s,c])=>(
-              <button key={s} onClick={()=>setCfg(p=>({...p,scenario:s}))}
-                style={{flex:1,padding:'5px 0',borderRadius:5,border:cfg.scenario===s?`1px solid ${c}`:'1px solid #30363d',background:cfg.scenario===s?`${c}22`:'transparent',color:cfg.scenario===s?c:'#6e7681',cursor:'pointer',fontSize:10,fontWeight:700,textTransform:'capitalize'}}>{s}</button>
-            ))}
-          </div>
-          <Sl label="Entry Multiple" k="entryMultiple" min={5} max={15} step={.25} unit="x"/>
-          <Sl label="Exit Multiple" k="exitMultiple" min={5} max={15} step={.25} unit="x"/>
-          <Sl label="Exit Year" k="exitYear" min={3} max={7} step={1} unit="yr"/>
-          <Sl label="Leverage (x)" k="leverageTurns" min={2} max={8} step={.25} unit="x"/>
-          <Sl label="Rev Growth" k="revenueGrowthBase" min={-5} max={25} step={.5} unit="%"/>
-          <Sl label="EBITDA Margin" k="ebitdaMarginBase" min={5} max={50} step={.5} unit="%"/>
-          <div style={{borderTop:'1px solid #21262d',paddingTop:8,marginTop:6,display:'flex',justifyContent:'space-between',fontSize:9,color:'#484f58'}}>
-            <span>EBITDA <span style={{fontFamily:'DM Mono',color:'#6e7681'}}>${co.ltmEBITDA}M</span></span>
-            <span>Rev <span style={{fontFamily:'DM Mono',color:'#6e7681'}}>${co.ltmRevenue}M</span></span>
-          </div>
+          {renderFields()}
         </div>
       )}
       {!open&&(
-        <button onClick={()=>setOpen(true)} style={{width:46,height:46,borderRadius:12,border:'1px solid #2d7dd2',background:'#161b22',color:'#58a6ff',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 4px 20px rgba(45,125,210,.35)',marginLeft:'auto'}}>
+        <button onClick={()=>setOpen(true)} title="Quick Controls" style={{width:46,height:46,borderRadius:12,border:'1px solid #2d7dd2',background:'#161b22',color:'#58a6ff',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 4px 20px rgba(45,125,210,.35)',marginLeft:'auto'}}>
           ⚡
         </button>
       )}
     </div>
   );
 }
+
 
 // ── Tweaks Panel ─────────────────────────────────────────────────────────────
 function TweaksPanel({cfg,setCfg,visible}){
@@ -2025,7 +2097,7 @@ function App(){
     </div>
     <div className="main">{sections[nav]}</div>
     <TweaksPanel cfg={cfg} setCfg={setCfg} visible={tweaks}/>
-    <QuickControls cfg={cfg} setCfg={setCfg} co={co} nav={nav}/>
+    <QuickControls cfg={cfg} setCfg={setCfg} co={co} setCo={setCo} maC={maC} setMaC={setMaC} nav={nav}/>
   </>);
 }
 
