@@ -289,7 +289,7 @@ function InputsSection({cfg,setCfg,co,setCo}){
 }
 
 // ── Overview ─────────────────────────────────────────────────────────────────
-function OverviewSection({lbo,dcf,cfg,co}){
+function OverviewSection({lbo,dcf,cfg,co,setCo}){
   const {proj,moic,irr,entryEV,equity,debt0,entryLev} = lbo;
   const ebs=[co.ltmEBITDA,...proj.map(p=>p.ebitda)];
   const maxE=Math.max(...ebs),minE=Math.min(...ebs)*.92,sW=110,sH=32;
@@ -300,15 +300,22 @@ function OverviewSection({lbo,dcf,cfg,co}){
       <div className="card cp" style={{marginBottom:14}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
           <div style={{flex:1}}>
-            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:7}}>
-              <span style={{fontSize:15,fontWeight:600,color:'#e6edf3'}}>{co.name}</span>
-              <span className="tag tag-b">{co.sector}</span>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}}>
+              <input value={co.name} onChange={e=>setCo(p=>({...p,name:e.target.value}))} placeholder="Company name"
+                style={{fontSize:15,fontWeight:600,color:'#e6edf3',background:'transparent',border:'none',borderBottom:'1px solid #30363d',outline:'none',padding:'2px 4px',minWidth:180,flex:1,maxWidth:340,fontFamily:'DM Sans,sans-serif'}}/>
+              <input value={co.sector} onChange={e=>setCo(p=>({...p,sector:e.target.value}))} placeholder="Sector"
+                style={{fontSize:10,color:'#58a6ff',background:'rgba(45,125,210,.12)',border:'1px solid #2d7dd2',borderRadius:8,padding:'2px 8px',outline:'none',width:140,fontFamily:'DM Sans,sans-serif'}}/>
               <span className="tag tag-y">LBO</span>
             </div>
-            <div style={{fontSize:12,color:'#6e7681',lineHeight:1.65,maxWidth:480}}>{co.desc}</div>
-            <div style={{display:'flex',gap:18,marginTop:10}}>
-              {[['HQ',co.hq],['Founded',co.founded],['Employees',co.employees]].map(([l,v])=>(
-                <div key={l}><div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.06em'}}>{l}</div><div style={{fontSize:11,color:'#8b949e',fontWeight:500,marginTop:1}}>{v}</div></div>
+            <input value={co.desc||''} onChange={e=>setCo(p=>({...p,desc:e.target.value}))} placeholder="Company description..."
+              style={{fontSize:12,color:'#6e7681',background:'transparent',border:'none',borderBottom:'1px solid #21262d',outline:'none',padding:'2px 4px',width:'100%',maxWidth:500,marginBottom:10,fontFamily:'DM Sans,sans-serif'}}/>
+            <div style={{display:'flex',gap:18,marginTop:6,flexWrap:'wrap'}}>
+              {[['HQ','hq'],['Founded','founded'],['Employees','employees'],['Ticker','short']].map(([l,k])=>(
+                <div key={l}>
+                  <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:2}}>{l}</div>
+                  <input value={co[k]||''} onChange={e=>setCo(p=>({...p,[k]:e.target.value}))}
+                    style={{fontSize:11,color:'#8b949e',fontWeight:500,background:'transparent',border:'none',borderBottom:'1px solid #21262d',outline:'none',padding:'1px 4px',width:90,fontFamily:'DM Sans,sans-serif'}}/>
+                </div>
               ))}
             </div>
           </div>
@@ -750,6 +757,16 @@ function ScenSection({cfg,co}){
   return(
     <div className="sec">
       <h2 className="sec-title">Scenario Comparison</h2>
+      <div className="card cp" style={{marginBottom:14}}>
+        <div className="igtitle" style={{marginBottom:10}}>Active Scenario</div>
+        <div style={{display:'flex',gap:6}}>
+          {scens.map(s=>(
+            <button key={s} onClick={()=>cfg.scenario!==s&&window.dispatchEvent(new CustomEvent('setScenario',{detail:s}))}
+              style={{flex:1,padding:'8px 0',borderRadius:6,border:cfg.scenario===s?`1px solid ${cols[s]}`:'1px solid #30363d',background:cfg.scenario===s?`${cols[s]}18`:'transparent',color:cfg.scenario===s?cols[s]:'#6e7681',cursor:'pointer',fontSize:12,fontWeight:700,textTransform:'capitalize'}}>{s}</button>
+          ))}
+        </div>
+        <div style={{marginTop:8,fontSize:10,color:'#484f58'}}>Active scenario flows through all LBO calculations. Use ⚡ Quick Controls on any tab to switch scenarios.</div>
+      </div>
       <div className="card" style={{marginBottom:14}}>
         <div className="clabel">Key Metrics by Scenario</div>
         <table><thead><tr><th>Metric</th><th style={{color:'#f85149'}}>Bear</th><th style={{color:'#2d7dd2'}}>Base</th><th style={{color:'#3fb950'}}>Bull</th></tr></thead>
@@ -1622,7 +1639,7 @@ function BSSection(){
 
   // Payoff diagram data — price at expiry across spot range
   const spots=[];
-  const sMin=S*0.5, sMax=S*1.5, steps=60;
+  const sMin=S*0.55, sMax=S*1.55, steps=80;
   for(let i=0;i<=steps;i++){
     const sp=sMin+(sMax-sMin)*(i/steps);
     const payoff=optType==='call'?Math.max(0,sp-K):Math.max(0,K-sp);
@@ -1634,8 +1651,8 @@ function BSSection(){
 
   // Vol surface — price vs sigma
   const vols=[];
-  for(let i=0;i<=30;i++){
-    const v=1+i*5;
+  for(let i=0;i<=40;i++){
+    const v=1+i*4; // 1% to 161%, 40 steps
     const b=buildBS(S,K,Ty,r/100,v/100,q/100);
     vols.push({v,price:b?(optType==='call'?b.call:b.put):0});
   }
@@ -1740,9 +1757,9 @@ function BSSection(){
             <svg width={VW} height={VH+16} style={{overflow:'visible'}}>
               <polyline points={volPts} fill="none" stroke={optType==='call'?'#3fb950':'#f85149'} strokeWidth={2} strokeLinejoin="round"/>
               {/* current vol dot */}
-              {(()=>{const vi=(sigma-1)/5;const vx=(vi/30)*VW;const b=buildBS(S,K,Ty,r/100,sigma/100,q/100);const vp=b?(optType==='call'?b.call:b.put):0;const vy=VH-(vp/(maxVPrice||1))*VH;return<circle cx={Math.max(0,Math.min(VW,vx))} cy={vy} r={4} fill={optType==='call'?'#3fb950':'#f85149'}/>;})()}
+              {(()=>{const vi=(sigma-1)/4;const vx=Math.max(0,Math.min(VW,(vi/40)*VW));const b=buildBS(S,K,Ty,r/100,sigma/100,q/100);const vp=b?(optType==='call'?b.call:b.put):0;const vy=Math.max(0,Math.min(VH,VH-(vp/(maxVPrice||1))*VH));return<circle cx={vx} cy={vy} r={4} fill={optType==='call'?'#3fb950':'#f85149'}/>;})()}
               <text x={0} y={VH+14} fontSize={9} fill="#484f58">1%</text>
-              <text x={VW-16} y={VH+14} fontSize={9} fill="#484f58">150%</text>
+              <text x={VW-20} y={VH+14} fontSize={9} fill="#484f58">161%</text>
               <text x={VW/2} y={VH+14} textAnchor="middle" fontSize={9} fill="#6e7681">σ</text>
             </svg>
           </div>
@@ -1855,7 +1872,7 @@ function QuickControls({cfg,setCfg,co,setCo,maC,setMaC,nav}){
         <input type="number" min={min} max={max} step={step} value={val}
           onFocus={e=>e.target.select()}
           onChange={e=>{const v=parseFloat(e.target.value);if(!isNaN(v))set(v);}}
-          style={{background:'#0d1117',border:'1px solid #30363d',color:'#e6edf3',borderRadius:5,padding:'4px 7px',fontFamily:'DM Mono',fontSize:12,width:70,textAlign:'right',outline:'none'}}/>
+          style={{background:'#0d1117',border:'1px solid #30363d',color:'#e6edf3',borderRadius:5,padding:'4px 7px',fontFamily:'DM Mono',fontSize:12,width:76,textAlign:'right',outline:'none'}}/>
         {unit&&<span style={{fontSize:10,color:'#6e7681',minWidth:18}}>{unit}</span>}
       </div>
     </div>
@@ -2004,8 +2021,8 @@ const NAV=[
   {id:'returns',  label:'Returns & IRR',    icon:'◎', group:'LBO'},
   {id:'sens',     label:'Sensitivity',      icon:'⊞', group:'LBO'},
   {id:'waterfall',label:'Debt Waterfall',   icon:'⬇', group:'LBO'},
+  {id:'scenarios',label:'Scenario Compare', icon:'≈', group:'LBO'},
   {id:'dcf',      label:'DCF Analysis',     icon:'◇', group:'DCF'},
-  {id:'scenarios',label:'Scenario Compare', icon:'≈', group:'DCF'},
   {id:'comps',    label:'Public Comps',     icon:'⊜', group:'DCF'},
   {id:'ma',       label:'M&A DCF',          icon:'⊗', group:'M&A'},
   {id:'bs',        label:'Black-Scholes',      icon:'◬', group:'Options'},
@@ -2028,9 +2045,11 @@ function App(){
       if(e.data?.type==='__activate_edit_mode')  setTweaks(true);
       if(e.data?.type==='__deactivate_edit_mode')setTweaks(false);
     };
+    const hs=e=>setCfg(p=>({...p,scenario:e.detail}));
     window.addEventListener('message',h);
+    window.addEventListener('setScenario',hs);
     window.parent.postMessage({type:'__edit_mode_available'},'*');
-    return()=>window.removeEventListener('message',h);
+    return()=>{window.removeEventListener('message',h);window.removeEventListener('setScenario',hs);};
   },[]);
 
   const handleReset=()=>{
@@ -2044,7 +2063,7 @@ function App(){
 
   const sectionMap = {
     inputs:   ()=><InputsSection cfg={cfg} setCfg={setCfg} co={co} setCo={setCo}/>,
-    overview: ()=><OverviewSection lbo={lbo} dcf={dcf} cfg={cfg} co={co}/>,
+    overview: ()=><OverviewSection lbo={lbo} dcf={dcf} cfg={cfg} co={co} setCo={setCo}/>,
     entry:    ()=><EntrySection lbo={lbo} cfg={cfg}/>,
     proj:     ()=><ProjSection lbo={lbo} co={co}/>,
     debt:     ()=><DebtSection lbo={lbo} cfg={cfg}/>,
@@ -2065,11 +2084,6 @@ function App(){
         <div className="co-badge">
           <div className="co-icon">{co.short||'VPC'}</div>
           <div><div className="co-name">{co.name}</div><div className="co-sub">{co.sector}</div></div>
-        </div>
-        <div className="scen-row">
-          {['bear','base','bull'].map(s=>(
-            <button key={s} className={`scen-btn ${s} ${cfg.scenario===s?'active':''}`} onClick={()=>setCfg(p=>({...p,scenario:s}))}>{s}</button>
-          ))}
         </div>
       </div>
       <div className="sidebar-nav">
