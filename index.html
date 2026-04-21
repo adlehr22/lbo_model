@@ -1640,17 +1640,15 @@ function BSSection(){
     vols.push({v,price:b?(optType==='call'?b.call:b.put):0});
   }
 
-  const InpRow=({label,val,set,min,max,step,fmt})=>(
-    <div style={{marginBottom:14}}>
-      <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
-        <span style={{fontSize:10,color:'#6e7681',textTransform:'uppercase',letterSpacing:'.06em'}}>{label}</span>
-        <span style={{fontFamily:'DM Mono',fontSize:12,color:'#e6edf3',fontWeight:500}}>{fmt?fmt(val):val}</span>
-      </div>
-      <input type="range" min={min} max={max} step={step} value={val} onChange={e=>set(parseFloat(e.target.value))}
-        style={{width:'100%'}}/>
-      <div style={{display:'flex',justifyContent:'space-between',marginTop:2}}>
-        <span style={{fontSize:9,color:'#484f58'}}>{min}</span>
-        <span style={{fontSize:9,color:'#484f58'}}>{max}</span>
+  const InpRow=({label,val,set,min,max,step,fmt,unit})=>(
+    <div style={{marginBottom:12,display:'grid',gridTemplateColumns:'1fr auto',gap:10,alignItems:'center'}}>
+      <span style={{fontSize:10,color:'#6e7681',textTransform:'uppercase',letterSpacing:'.06em'}}>{label}</span>
+      <div style={{display:'flex',alignItems:'center',gap:4}}>
+        <input type="number" min={min} max={max} step={step} value={val}
+          onFocus={e=>e.target.select()}
+          onChange={e=>{const v=parseFloat(e.target.value);if(!isNaN(v))set(v);}}
+          style={{background:'#0d1117',border:'1px solid #30363d',color:'#e6edf3',borderRadius:5,padding:'5px 8px',fontFamily:'DM Mono',fontSize:12,width:80,textAlign:'right',outline:'none'}}/>
+        {unit&&<span style={{fontSize:10,color:'#6e7681',minWidth:16}}>{unit}</span>}
       </div>
     </div>
   );
@@ -1695,17 +1693,25 @@ function BSSection(){
             ))}
           </div>
 
-          <InpRow label="Stock Price (S)" val={S} set={setS} min={10} max={500} step={1} fmt={v=>`$${v}`}/>
-          <InpRow label="Strike Price (K)" val={K} set={setK} min={10} max={500} step={1} fmt={v=>`$${v}`}/>
-          <InpRow label="Days to Expiry (T)" val={T} set={setT} min={1} max={730} step={1} fmt={v=>`${v}d (${(v/365).toFixed(2)}yr)`}/>
-          <InpRow label="Implied Volatility (σ)" val={sigma} set={setSigma} min={1} max={150} step={0.5} fmt={v=>`${v}%`}/>
-          <InpRow label="Risk-Free Rate (r)" val={r} set={setR} min={0} max={15} step={0.1} fmt={v=>`${v}%`}/>
-          <InpRow label="Dividend Yield (q)" val={q} set={setQ} min={0} max={10} step={0.1} fmt={v=>`${v}%`}/>
+          <InpRow label="Stock Price (S)" val={S} set={setS} min={1} max={1000} step={1} unit="$"/>
+          <InpRow label="Strike Price (K)" val={K} set={setK} min={1} max={1000} step={1} unit="$"/>
+          <InpRow label="Days to Expiry (T)" val={T} set={setT} min={1} max={1825} step={1} unit="d"/>
+          <InpRow label="Implied Volatility (σ)" val={sigma} set={setSigma} min={0.1} max={300} step={0.5} unit="%"/>
+          <InpRow label="Risk-Free Rate (r)" val={r} set={setR} min={0} max={20} step={0.1} unit="%"/>
+          <InpRow label="Dividend Yield (q)" val={q} set={setQ} min={0} max={20} step={0.1} unit="%"/>
 
           {/* Moneyness indicator */}
-          <div style={{marginTop:8,padding:'10px 12px',background:isITM?'rgba(63,185,80,.1)':'rgba(248,81,73,.1)',borderRadius:7,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-            <span style={{fontSize:11,color:'#8b949e'}}>{isITM?'In the Money':'Out of the Money'}</span>
-            <span style={{fontFamily:'DM Mono',fontSize:13,fontWeight:600,color:isITM?'#3fb950':'#f85149'}}>{moneyness>=0?'+':''}{moneyness.toFixed(1)}%</span>
+          <div style={{marginTop:8,padding:'10px 12px',background:isITM?'rgba(63,185,80,.1)':'rgba(248,81,73,.1)',borderRadius:7}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+              <span style={{fontSize:11,color:'#8b949e'}}>{isITM?'In the Money':'Out of the Money'}</span>
+              <span style={{fontFamily:'DM Mono',fontSize:13,fontWeight:600,color:isITM?'#3fb950':'#f85149'}}>{moneyness>=0?'+':''}{moneyness.toFixed(1)}%</span>
+            </div>
+            <div style={{display:'flex',gap:16,fontSize:10,color:'#6e7681'}}>
+              <span>S=<span style={{fontFamily:'DM Mono',color:'#c9d1d9'}}>${S}</span></span>
+              <span>K=<span style={{fontFamily:'DM Mono',color:'#c9d1d9'}}>${K}</span></span>
+              <span>T=<span style={{fontFamily:'DM Mono',color:'#c9d1d9'}}>{T}d ({(T/365).toFixed(2)}yr)</span></span>
+              <span>σ=<span style={{fontFamily:'DM Mono',color:'#c9d1d9'}}>{sigma}%</span></span>
+            </div>
           </div>
         </div>
 
@@ -1833,15 +1839,16 @@ function BSSection(){
 function QuickControls({cfg,setCfg,co,nav}){
   const[open,setOpen]=useState(true);
   if(nav==='inputs'||nav==='bs')return null;
-  const Sl=({label,k,min,max,step,fmt})=>(
-    <div style={{marginBottom:11}}>
-      <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
-        <span style={{fontSize:9,color:'#8b949e',textTransform:'uppercase',letterSpacing:'.05em'}}>{label}</span>
-        <span style={{fontSize:11,fontFamily:'DM Mono',color:'#e6edf3',fontWeight:500}}>{fmt?fmt(cfg[k]):cfg[k]}</span>
+  const Sl=({label,k,min,max,step,fmt,unit})=>(
+    <div style={{marginBottom:10,display:'grid',gridTemplateColumns:'1fr auto',gap:8,alignItems:'center'}}>
+      <span style={{fontSize:9,color:'#8b949e',textTransform:'uppercase',letterSpacing:'.05em'}}>{label}</span>
+      <div style={{display:'flex',alignItems:'center',gap:4}}>
+        <input type="number" min={min} max={max} step={step} value={cfg[k]}
+          onFocus={e=>e.target.select()}
+          onChange={e=>{const v=parseFloat(e.target.value);if(!isNaN(v))setCfg(p=>({...p,[k]:v}));}}
+          style={{background:'#0d1117',border:'1px solid #30363d',color:'#e6edf3',borderRadius:5,padding:'4px 7px',fontFamily:'DM Mono',fontSize:12,width:68,textAlign:'right',outline:'none'}}/>
+        {unit&&<span style={{fontSize:10,color:'#6e7681',minWidth:14}}>{unit}</span>}
       </div>
-      <input type="range" min={min} max={max} step={step} value={cfg[k]}
-        onChange={e=>setCfg(p=>({...p,[k]:parseFloat(e.target.value)}))}
-        style={{width:'100%',accentColor:'#2d7dd2'}}/>
     </div>
   );
   return(
@@ -1858,12 +1865,12 @@ function QuickControls({cfg,setCfg,co,nav}){
                 style={{flex:1,padding:'5px 0',borderRadius:5,border:cfg.scenario===s?`1px solid ${c}`:'1px solid #30363d',background:cfg.scenario===s?`${c}22`:'transparent',color:cfg.scenario===s?c:'#6e7681',cursor:'pointer',fontSize:10,fontWeight:700,textTransform:'capitalize'}}>{s}</button>
             ))}
           </div>
-          <Sl label="Entry Multiple" k="entryMultiple" min={6} max={13} step={.25} fmt={v=>`${v.toFixed(2)}x`}/>
-          <Sl label="Exit Multiple"  k="exitMultiple"  min={6} max={13} step={.25} fmt={v=>`${v.toFixed(2)}x`}/>
-          <Sl label="Exit Year"      k="exitYear"       min={3} max={7}  step={1}   fmt={v=>`Year ${v}`}/>
-          <Sl label="Leverage"       k="leverageTurns"  min={3} max={7}  step={.25} fmt={v=>`${v.toFixed(2)}x`}/>
-          <Sl label="Rev Growth"     k="revenueGrowthBase" min={2} max={15} step={.5} fmt={v=>`${v.toFixed(1)}%`}/>
-          <Sl label="EBITDA Margin"  k="ebitdaMarginBase"  min={10} max={35} step={.5} fmt={v=>`${v.toFixed(1)}%`}/>
+          <Sl label="Entry Multiple" k="entryMultiple" min={5} max={15} step={.25} unit="x"/>
+          <Sl label="Exit Multiple" k="exitMultiple" min={5} max={15} step={.25} unit="x"/>
+          <Sl label="Exit Year" k="exitYear" min={3} max={7} step={1} unit="yr"/>
+          <Sl label="Leverage (x)" k="leverageTurns" min={2} max={8} step={.25} unit="x"/>
+          <Sl label="Rev Growth" k="revenueGrowthBase" min={-5} max={25} step={.5} unit="%"/>
+          <Sl label="EBITDA Margin" k="ebitdaMarginBase" min={5} max={50} step={.5} unit="%"/>
           <div style={{borderTop:'1px solid #21262d',paddingTop:8,marginTop:6,display:'flex',justifyContent:'space-between',fontSize:9,color:'#484f58'}}>
             <span>EBITDA <span style={{fontFamily:'DM Mono',color:'#6e7681'}}>${co.ltmEBITDA}M</span></span>
             <span>Rev <span style={{fontFamily:'DM Mono',color:'#6e7681'}}>${co.ltmRevenue}M</span></span>
