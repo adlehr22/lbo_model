@@ -1098,8 +1098,8 @@ function MASection({ cfg, co, dcf, maC, setMaC }) {
             <thead><tr><th>($M)</th><th style={{color:'#d29922'}}>ACQ Standalone</th><th style={{color:'#2d7dd2'}}>TGT Standalone</th><th>Adjustments</th><th style={{color:'#3fb950'}}>Pro Forma Y1</th><th style={{color:'#3fb950'}}>Pro Forma Y2</th></tr></thead>
             <tbody>
               {[
-                {l:'Revenue',        acq:ACQUIRER.revenue, tgt:co.ltmRevenue, adj:ma.annualRevSyn*ramp[0], pf1:proForma[0].combRev, pf2:proForma[1].combRev, b:true},
-                {l:'EBITDA',         acq:ACQUIRER.ebitda,  tgt:co.ltmEBITDA,  adj:annualTotSyn*ramp[0]-maC.integCostY1, pf1:proForma[0].combEBITDA, pf2:proForma[1].combEBITDA, b:true, bt:true},
+                {l:'Revenue',        acq:ACQUIRER.revenue, tgt:co.ltmRevenue, adj:ma.annualRevSyn*0.20, pf1:proForma[0].combRev, pf2:proForma[1].combRev, b:true},
+                {l:'EBITDA',         acq:ACQUIRER.ebitda,  tgt:co.ltmEBITDA,  adj:annualTotSyn*0.20-maC.integCostY1, pf1:proForma[0].combEBITDA, pf2:proForma[1].combEBITDA, b:true, bt:true},
                 {l:'  Margin',       acq:null, tgt:null, adj:null, pf1:null, pf2:null, special:'margins'},
                 {l:'(–) D&A + PPA',  acq:ACQUIRER.da, tgt:co.ltmDA, adj:annualPPAAmort, pf1:proForma[0].combDA, pf2:proForma[1].combDA, bt:true},
                 {l:'EBIT',           acq:ACQUIRER.ebit, tgt:co.ltmEBITDA-co.ltmDA, adj:null, pf1:proForma[0].combEBIT, pf2:proForma[1].combEBIT, b:true},
