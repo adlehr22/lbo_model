@@ -767,29 +767,36 @@ function ScenSection({cfg,co}){
 const ACQUIRER = {
   name:'Meridian Aerospace Holdings', short:'MAH',
   revenue:2140, ebitda:385, ebitdaMargin:.18,
-  netIncome:182, eps:4.20, shares:85, // shares in millions
-  netDebt:420, evMultiple:10.8,
+  ebit:268, interestExp:32, netIncome:182, eps:4.20, shares:85,
+  netDebt:420, evMultiple:10.8, da:58, capex:44,
 };
 
 const MA_DEF = {
   offerPremium:32, cashPct:60,
   costSynPct:3.2, revSynM:22,
   integCostY1:42, integCostY2:24,
-  synDiscSpread:200, // bps above WACC
+  synDiscSpread:200,
+  ppaTangible:85, ppaIntangible:140, ppaUsefulLife:12,
 };
 
 function buildMA(cfg, co, dcf, maC) {
+  const txRate       = cfg.taxRate / 100;
   const standaloneEV = dcf.evGG;
   const offerEV      = standaloneEV * (1 + maC.offerPremium/100);
   const premium      = offerEV - standaloneEV;
-  const premiumPct   = maC.offerPremium / 100;
   const cashConsid   = offerEV * (maC.cashPct/100);
   const stockConsid  = offerEV * (1 - maC.cashPct/100);
-  const newShares    = stockConsid / (ACQUIRER.netDebt + ACQUIRER.ebitda*ACQUIRER.evMultiple) * ACQUIRER.shares; // approx
-  const debtFinanced = cashConsid * 0.5; // assume 50% of cash from new debt
-  const cashFromBS   = cashConsid * 0.5;
-  const txRate       = cfg.taxRate / 100;
+  const acqEV        = ACQUIRER.ebitda * ACQUIRER.evMultiple;
+  const newShares    = (stockConsid / acqEV) * ACQUIRER.shares;
+  const debtFinanced = cashConsid * 0.55;
+  const cashFromBS   = cashConsid * 0.45;
   const synDisc      = dcf.wacc + maC.synDiscSpread/100;
+
+  // PPA / Goodwill
+  const bookValueTgt   = co.ltmEBITDA * 2.2; // proxy net book value
+  const fairValueStepUp= maC.ppaTangible + maC.ppaIntangible;
+  const goodwill       = offerEV - bookValueTgt - fairValueStepUp;
+  const annualPPAAmort = maC.ppaIntangible / maC.ppaUsefulLife;
 
   // Synergy ramp: 20/55/80/100/100
   const ramp = [0.20, 0.55, 0.80, 1.00, 1.00];
@@ -800,72 +807,112 @@ function buildMA(cfg, co, dcf, maC) {
 
   let pvSyn = 0, pvInteg = 0;
   const synRows = ramp.map((r, i) => {
-    const grossSyn  = annualTotSyn * r;
-    const costSyn   = annualCostSyn * r;
-    const revSyn    = annualRevSyn * r;
-    const integ     = integCosts[i] || 0;
-    const netSyn    = grossSyn - integ;
-    const netSynAT  = netSyn * (1 - txRate);
-    const df        = 1 / Math.pow(1 + synDisc, i+1);
+    const grossSyn = annualTotSyn * r;
+    const costSyn  = annualCostSyn * r;
+    const revSyn   = annualRevSyn * r;
+    const integ    = integCosts[i] || 0;
+    const netSyn   = grossSyn - integ;
+    const netSynAT = netSyn * (1 - txRate);
+    const df       = 1 / Math.pow(1 + synDisc, i+1);
     pvSyn   += grossSyn * (1-txRate) * df;
     pvInteg += integ * (1-txRate) * df;
-    return { year:i+1, costSyn, revSyn, grossSyn, integ, netSyn, netSynAT, pv: netSynAT * df };
+    return { year:i+1, costSyn, revSyn, grossSyn, integ, netSyn, netSynAT, pv: netSynAT*df };
   });
-  const pvNetSyn = pvSyn - pvInteg;
+  const pvNetSyn     = pvSyn - pvInteg;
   const valueCreated = pvNetSyn - premium;
-
-  // Break-even synergy run-rate
-  const pvAnnuityFactor = ramp.reduce((s,r,i)=>s+r*(1-txRate)/Math.pow(1+synDisc,i+1), 0);
+  const pvAnnuityFactor = ramp.reduce((s,r,i)=>s+r*(1-txRate)/Math.pow(1+synDisc,i+1),0);
   const breakEvenSyn = premium / pvAnnuityFactor;
 
-  // Accretion / dilution (Year 2 when synergies ramping)
-  const y2SynEBITDA  = annualTotSyn * ramp[1];
-  const y2Integ      = integCosts[1];
-  const newDebtInt   = debtFinanced * (cfg.costOfDebt/100);
-  const combinedNI   = ACQUIRER.netIncome + co.ltmEBITDA*0.55 + (y2SynEBITDA - y2Integ - newDebtInt) * (1-txRate);
-  const combinedShares = ACQUIRER.shares + Math.max(0, newShares);
-  const pfEPS        = combinedNI / combinedShares;
-  const accretion    = (pfEPS - ACQUIRER.eps) / ACQUIRER.eps;
+  // Pro Forma Income Statement (Year 1 and Year 2)
+  const newDebtInt = debtFinanced * (cfg.costOfDebt/100);
+  const proForma = [1,2].map(yr => {
+    const tgtRev    = co.ltmRevenue * Math.pow(1.075, yr);
+    const tgtEBITDA = tgtRev * 0.20;
+    const synE      = annualTotSyn * ramp[yr-1];
+    const integC    = integCosts[yr-1] || 0;
+    const combRev   = ACQUIRER.revenue + tgtRev + (annualRevSyn * ramp[yr-1]);
+    const combEBITDA= ACQUIRER.ebitda  + tgtEBITDA + (annualCostSyn * ramp[yr-1]) - integC;
+    const combDA    = ACQUIRER.da + co.ltmDA * Math.pow(1.03, yr) + annualPPAAmort;
+    const combEBIT  = combEBITDA - combDA;
+    const combInt   = ACQUIRER.interestExp + newDebtInt;
+    const combEBT   = combEBIT - combInt;
+    const combTax   = Math.max(0, combEBT * txRate);
+    const combNI    = combEBT - combTax;
+    const combShares= ACQUIRER.shares + Math.max(0, newShares);
+    const pfEPS     = combNI / combShares;
+    const accretion = (pfEPS - ACQUIRER.eps) / ACQUIRER.eps;
+    return { yr, combRev, combEBITDA, combDA, combEBIT, combInt, combEBT, combTax, combNI, combShares, pfEPS, accretion, synE, integC };
+  });
 
-  // Sensitivity: premium × cost syn %
+  // Deal structure sensitivity: cash% × offer premium → Y2 accretion
+  const cashPctRows = [20,30,40,50,60,70,80];
+  const premCols    = [20,25,30,35,40,45,50];
+  const structSens  = cashPctRows.map(cp => premCols.map(pr => {
+    const offEV2   = standaloneEV*(1+pr/100);
+    const cash2    = offEV2*(cp/100);
+    const stock2   = offEV2*(1-cp/100);
+    const nShares2 = (stock2/acqEV)*ACQUIRER.shares;
+    const debt2    = cash2*0.55;
+    const int2     = debt2*(cfg.costOfDebt/100);
+    const y2syn    = annualTotSyn*ramp[1];
+    const y2int2   = integCosts[1]||0;
+    const combNI2  = ACQUIRER.netIncome + co.ltmEBITDA*0.55*0.75 + (y2syn-y2int2-int2)*(1-txRate) - annualPPAAmort*(1-txRate);
+    const combS2   = ACQUIRER.shares + Math.max(0,nShares2);
+    const pfEPS2   = combNI2/combS2;
+    return (pfEPS2 - ACQUIRER.eps)/ACQUIRER.eps;
+  }));
+
+  // Value created sensitivity: premium × syn%
   const premRows = [15,20,25,30,35,40,45];
   const synCols  = [1.5,2.0,2.5,3.0,3.5,4.0,4.5];
   const sensMat  = premRows.map(prem => synCols.map(synPct => {
-    const offEV = standaloneEV*(1+prem/100);
-    const prem_ = offEV - standaloneEV;
-    const synAmt= co.ltmRevenue*(synPct/100) + annualRevSyn;
-    const pvS   = ramp.reduce((s,r,i)=>s+synAmt*r*(1-txRate)/Math.pow(1+synDisc,i+1),0);
-    return { vc: pvS - prem_, pct: (pvS-prem_)/offEV };
+    const offEV2 = standaloneEV*(1+prem/100);
+    const prem_  = offEV2 - standaloneEV;
+    const synAmt = co.ltmRevenue*(synPct/100) + annualRevSyn;
+    const pvS    = ramp.reduce((s,r,i)=>s+synAmt*r*(1-txRate)/Math.pow(1+synDisc,i+1),0);
+    return { vc: pvS-prem_, pct:(pvS-prem_)/offEV2 };
   }));
 
-  return { standaloneEV, offerEV, premium, premiumPct, cashConsid, stockConsid,
-    newShares, debtFinanced, synRows, pvSyn, pvInteg, pvNetSyn, valueCreated,
+  return {
+    standaloneEV, offerEV, premium, cashConsid, stockConsid,
+    newShares, debtFinanced, cashFromBS, newDebtInt,
+    goodwill, bookValueTgt, fairValueStepUp, annualPPAAmort,
+    synRows, pvSyn, pvInteg, pvNetSyn, valueCreated,
     breakEvenSyn, annualCostSyn, annualRevSyn, annualTotSyn,
-    pfEPS, accretion, combinedNI, combinedShares,
-    premRows, synCols, sensMat, synDisc };
+    proForma, cashPctRows, premCols, structSens,
+    premRows, synCols, sensMat, synDisc,
+  };
 }
 
 // ── M&A Section ──────────────────────────────────────────────────────────────
 function MASection({ cfg, co, dcf, maC, setMaC }) {
   const ma = useMemo(()=>buildMA(cfg,co,dcf,maC),[cfg,co,dcf,maC]);
+  const [accTab, setAccTab] = useState('pf');
   const { standaloneEV,offerEV,premium,cashConsid,stockConsid,
+    newShares,debtFinanced,cashFromBS,newDebtInt,
+    goodwill,bookValueTgt,fairValueStepUp,annualPPAAmort,
     synRows,pvNetSyn,valueCreated,breakEvenSyn,annualTotSyn,
-    pfEPS,accretion,sensMat,premRows,synCols,synDisc } = ma;
+    proForma,cashPctRows,premCols,structSens,
+    premRows,synCols,sensMat,synDisc } = ma;
 
   const upd=(k,v)=>setMaC(p=>({...p,[k]:parseFloat(v)||0}));
   const vcFg = v=>v>=0?'#3fb950':'#f85149';
   const vcBg = v=>v>=0?'rgba(63,185,80,.15)':'rgba(248,81,73,.15)';
   const accFg= v=>v>=0?'#3fb950':'#f85149';
+  const accBg= v=>v>=0?'rgba(63,185,80,.12)':'rgba(248,81,73,.12)';
+  const y2   = proForma[1];
 
   return (
     <div className="sec">
       <h2 className="sec-title">M&A DCF Analysis</h2>
 
-      {/* Parties */}
+      {/* Party cards */}
       <div className="g2">
         {[
-          { badge:'TGT', name:co.name,            role:'Target',   items:[['LTM Revenue',fM(co.ltmRevenue)],['LTM EBITDA',fM(co.ltmEBITDA)],['Standalone EV',fM(standaloneEV)],['EV/EBITDA',fX(standaloneEV/co.ltmEBITDA)]], bc:'#2d7dd2' },
-          { badge:'ACQ', name:ACQUIRER.name,        role:'Acquirer', items:[['Revenue',fM(ACQUIRER.revenue)],['EBITDA',fM(ACQUIRER.ebitda)],['EPS',`\$${ACQUIRER.eps.toFixed(2)}`],['EV/EBITDA',fX(ACQUIRER.evMultiple)]], bc:'#d29922' },
+          { badge:'TGT', name:co.name, role:'Target', bc:'#2d7dd2',
+            items:[['LTM Revenue',fM(co.ltmRevenue)],['LTM EBITDA',fM(co.ltmEBITDA)],['Standalone EV',fM(standaloneEV)],['EV/EBITDA',fX(standaloneEV/co.ltmEBITDA)]] },
+          { badge:'ACQ', name:ACQUIRER.name, role:'Acquirer', bc:'#d29922',
+            items:[['Revenue',fM(ACQUIRER.revenue)],['EBITDA',fM(ACQUIRER.ebitda)],['EPS',`$${ACQUIRER.eps.toFixed(2)}`],['EV/EBITDA',fX(ACQUIRER.evMultiple)]] },
         ].map(p=>(
           <div key={p.role} className="card cp">
             <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:12}}>
@@ -889,13 +936,16 @@ function MASection({ cfg, co, dcf, maC, setMaC }) {
         <div className="igtitle">Deal Parameters</div>
         <div className="irow">
           {[
-            {k:'offerPremium', label:'Offer Premium (%)',      min:5,  max:80, step:.5},
-            {k:'cashPct',      label:'Cash Consideration (%)', min:0,  max:100,step:5},
-            {k:'costSynPct',   label:'Cost Synergies (% rev)', min:0,  max:8,  step:.25},
-            {k:'revSynM',      label:'Revenue Synergies ($M)', min:0,  max:100,step:1},
-            {k:'integCostY1',  label:'Integration Cost Y1 ($M)',min:0, max:200,step:1},
-            {k:'integCostY2',  label:'Integration Cost Y2 ($M)',min:0, max:100,step:1},
-            {k:'synDiscSpread',label:'Synergy Risk Spread (bps)',min:0,max:500,step:25},
+            {k:'offerPremium',  label:'Offer Premium (%)',        min:5,   max:80,  step:.5},
+            {k:'cashPct',       label:'Cash Consideration (%)',   min:0,   max:100, step:5},
+            {k:'costSynPct',    label:'Cost Synergies (% rev)',   min:0,   max:8,   step:.25},
+            {k:'revSynM',       label:'Revenue Synergies ($M)',   min:0,   max:150, step:1},
+            {k:'integCostY1',   label:'Integration Cost Y1 ($M)',  min:0, max:200, step:1},
+            {k:'integCostY2',   label:'Integration Cost Y2 ($M)',  min:0, max:100, step:1},
+            {k:'synDiscSpread', label:'Synergy Risk Spread (bps)', min:0, max:500, step:25},
+            {k:'ppaTangible',   label:'PPA Tangible Step-Up ($M)', min:0, max:300, step:5},
+            {k:'ppaIntangible', label:'PPA Intangible Step-Up ($M)',min:0,max:400, step:5},
+            {k:'ppaUsefulLife', label:'Intangible Useful Life (yrs)',min:3,max:20, step:1},
           ].map(f=>(
             <div key={f.k}>
               <div className="ilabel">{f.label}</div>
@@ -905,106 +955,288 @@ function MASection({ cfg, co, dcf, maC, setMaC }) {
         </div>
       </div>
 
-      {/* Offer price bridge */}
+      {/* Offer bridge + PPA/Goodwill side by side */}
+      <div className="g2">
+        <div className="card" style={{marginBottom:0}}>
+          <div className="clabel">Offer Price Bridge ($M EV)</div>
+          <div style={{padding:'0 18px 16px'}}>
+            {[
+              {l:'Standalone DCF (Gordon Growth)', v:standaloneEV, c:'#2d7dd2'},
+              {l:`Control Premium (${maC.offerPremium.toFixed(1)}%)`, v:premium, c:'#d29922', plus:true, pct:premium/standaloneEV},
+              {l:'Offer Price (EV)', v:offerEV, c:'#3fb950', bold:true},
+            ].map((row,i)=>(
+              <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 0',borderBottom:i<2?'1px solid #21262d':undefined}}>
+                <div style={{width:8,height:8,borderRadius:2,background:row.c,flexShrink:0}}/>
+                <div style={{flex:1,fontSize:12,color:row.bold?'#e6edf3':'#c9d1d9',fontWeight:row.bold?600:400}}>{row.l}</div>
+                {row.pct!=null&&<span style={{fontSize:10,color:'#6e7681',fontFamily:'DM Mono'}}>{row.plus?'+':''}{fP(row.pct)}</span>}
+                <div style={{fontFamily:'DM Mono',fontSize:row.bold?14:12,color:row.c,fontWeight:row.bold?700:500,minWidth:70,textAlign:'right'}}>{row.plus?`+${fM(row.v)}`:fM(row.v)}</div>
+              </div>
+            ))}
+            <div style={{marginTop:12,display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+              {[{l:'Cash',v:fM(cashConsid),s:`${maC.cashPct}% of offer`},{l:'Stock',v:fM(stockConsid),s:`${(100-maC.cashPct).toFixed(0)}% / ${newShares.toFixed(1)}M new shares`},{l:'Acquisition Debt',v:fM(debtFinanced),s:'55% of cash financed'},{l:'Cash from B/S',v:fM(cashFromBS),s:'45% from balance sheet'}].map(k=>(
+                <div key={k.l} style={{padding:'8px 10px',background:'#0d1117',borderRadius:6}}>
+                  <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.05em'}}>{k.l}</div>
+                  <div style={{fontFamily:'DM Mono',fontSize:12,color:'#c9d1d9',fontWeight:600,marginTop:2}}>{k.v}</div>
+                  <div style={{fontSize:9,color:'#6e7681',marginTop:1}}>{k.s}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="card" style={{marginBottom:0}}>
+          <div className="clabel">Purchase Price Allocation & Goodwill</div>
+          <div style={{padding:'0 18px 16px'}}>
+            {[
+              {l:'Offer Price (EV)',                v:offerEV,          c:'#3fb950'},
+              {l:'(–) Target Book Value (Net Assets)',v:bookValueTgt,    c:'#8b949e', minus:true},
+              {l:'Total Excess Purchase Price',      v:offerEV-bookValueTgt, c:'#e6edf3', bold:true, bt:true},
+              {l:'↳ Tangible Asset Step-Up',         v:maC.ppaTangible,  c:'#6e7681', indent:true},
+              {l:'↳ Intangible Asset Step-Up',       v:maC.ppaIntangible,c:'#6e7681', indent:true},
+              {l:'Goodwill (Residual)',               v:Math.max(0,goodwill), c:'#d29922', bold:true, bt:true},
+            ].map((row,i)=>(
+              <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 0',borderTop:row.bt?'1px solid #21262d':undefined}}>
+                <div style={{flex:1,fontSize:12,color:row.bold?'#c9d1d9':'#8b949e',fontWeight:row.bold?600:400,paddingLeft:row.indent?14:0}}>{row.l}</div>
+                <div style={{fontFamily:'DM Mono',fontSize:row.bold?13:12,color:row.c,fontWeight:row.bold?700:400}}>{row.minus?`(${fM(row.v)})`:fM(row.v)}</div>
+              </div>
+            ))}
+            <div style={{marginTop:12,padding:'10px 12px',background:'rgba(210,153,34,.08)',borderRadius:6}}>
+              <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:6}}>Annual PPA Amortization Impact</div>
+              <div style={{display:'flex',justifyContent:'space-between'}}>
+                <span style={{fontSize:11,color:'#8b949e'}}>Intangible amort / yr ({maC.ppaUsefulLife}yr life)</span>
+                <span style={{fontFamily:'DM Mono',fontSize:12,color:'#d29922',fontWeight:600}}>{fM(annualPPAAmort)}</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',marginTop:4}}>
+                <span style={{fontSize:11,color:'#8b949e'}}>After-tax EPS drag</span>
+                <span style={{fontFamily:'DM Mono',fontSize:12,color:'#f85149',fontWeight:600}}>${(annualPPAAmort*(1-cfg.taxRate/100)/(ACQUIRER.shares+Math.max(0,newShares))).toFixed(2)}/share</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Synergies */}
+      <div className="card" style={{marginBottom:14,marginTop:14}}>
+        <div className="clabel">Synergies Build ($M) — {(ramp.map((r,i)=>`Y${i+1}: ${(r*100).toFixed(0)}%`)).join(' → ')} ramp</div>
+        <table>
+          <thead><tr><th>($M)</th>{synRows.map(r=><th key={r.year}>Year {r.year}</th>)}<th>Run-Rate</th></tr></thead>
+          <tbody>
+            <TR label="Cost Synergies"           vals={[...synRows.map(r=>fM(r.costSyn)),  fM(ma.annualCostSyn)]}/>
+            <TR label="Revenue Synergies"         vals={[...synRows.map(r=>fM(r.revSyn)),   fM(ma.annualRevSyn)]}/>
+            <TR bold borderTop label="Gross Synergies"   vals={[...synRows.map(r=>fM(r.grossSyn)), fM(annualTotSyn)]}/>
+            <TR dim indent label="(–) Integration Costs" vals={[...synRows.map(r=>fM(r.integ)),    '—']}/>
+            <TR bold borderTop green label="Net Synergies" vals={[...synRows.map(r=>fM(r.netSyn)), fM(annualTotSyn)]}/>
+            <TR dim borderTop label="PV of Net Synergies"  vals={[...synRows.map(r=>fM(r.pv)),     fM(pvNetSyn)]}/>
+          </tbody>
+        </table>
+        <div style={{padding:'10px 18px',borderTop:'1px solid #21262d',display:'flex',gap:20,flexWrap:'wrap'}}>
+          {[{l:'PV Gross Syn',v:fM(ma.pvSyn)},{l:'PV Integ Costs',v:fM(ma.pvInteg)},{l:'PV Net Syn',v:fM(pvNetSyn),c:'#3fb950'},{l:'Syn Discount Rate',v:fP(synDisc)},{l:'Break-Even Run-Rate',v:fM(breakEvenSyn),c:'#58a6ff'},{l:'Break-Even % Rev',v:fP(breakEvenSyn/co.ltmRevenue),c:'#58a6ff'}].map(k=>(
+            <div key={k.l}><div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.05em'}}>{k.l}</div><div style={{fontFamily:'DM Mono',fontSize:12,color:k.c||'#c9d1d9',fontWeight:k.c?600:400,marginTop:2}}>{k.v}</div></div>
+          ))}
+        </div>
+      </div>
+
+      {/* Synergy ramp chart */}
       <div className="card" style={{marginBottom:14}}>
-        <div className="clabel">Offer Price Bridge ($M EV)</div>
+        <div className="clabel">Synergy Ramp & Integration Costs ($M)</div>
         <div style={{padding:'0 18px 16px'}}>
+          {(()=>{
+            const W=560,H=100,bW=60,bGap=28;
+            const maxV=Math.max(annualTotSyn,...synRows.map(r=>r.integ))*1.2;
+            const sc=H/maxV;
+            return(
+              <svg width={W} height={H+50} style={{overflow:'visible'}}>
+                {synRows.map((r,i)=>{
+                  const x=40+i*(bW+bGap);
+                  const synH=r.grossSyn*sc, integH=r.integ*sc;
+                  return(<g key={i}>
+                    <rect x={x} y={H-synH} width={bW} height={Math.max(synH,1)} fill="#3fb950" rx={2} opacity={.8}/>
+                    {r.integ>0&&<rect x={x} y={H-integH} width={bW} height={Math.max(integH,1)} fill="#f85149" rx={2} opacity={.75}/>}
+                    <text x={x+bW/2} y={H-synH-6} textAnchor="middle" fontSize={10} fill="#8b949e" fontFamily="DM Mono">{r.grossSyn.toFixed(0)}</text>
+                    <text x={x+bW/2} y={H+16} textAnchor="middle" fontSize={11} fill="#6e7681">Y{r.year}</text>
+                    <text x={x+bW/2} y={H+28} textAnchor="middle" fontSize={9} fill="#484f58" fontFamily="DM Mono">{(ramp[i]*100).toFixed(0)}%</text>
+                  </g>);
+                })}
+                <line x1={40} y1={H} x2={W-20} y2={H} stroke="#21262d" strokeWidth={1}/>
+                <line x1={40} y1={H-annualTotSyn*sc} x2={W-20} y2={H-annualTotSyn*sc} stroke="#3fb950" strokeWidth={1} strokeDasharray="4 3" opacity={.5}/>
+                <text x={W-18} y={H-annualTotSyn*sc+4} fontSize={9} fill="#3fb950" opacity={.7}>RR</text>
+                <rect x={W-130} y={8}  width={8} height={8} fill="#3fb950" rx={1}/><text x={W-118} y={15} fontSize={10} fill="#6e7681">Gross Synergies</text>
+                <rect x={W-130} y={22} width={8} height={8} fill="#f85149" rx={1}/><text x={W-118} y={29} fontSize={10} fill="#6e7681">Integration Costs</text>
+              </svg>
+            );
+          })()}
+        </div>
+      </div>
+
+      {/* Pro Forma IS */}
+      <div className="card" style={{marginBottom:14}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'13px 18px 9px'}}>
+          <span style={{fontSize:10,fontWeight:700,color:'#6e7681',textTransform:'uppercase',letterSpacing:'.07em'}}>Pro Forma Income Statement ($M)</span>
+          <div className="ptabs" style={{margin:0}}>
+            {[['pf','Pro Forma'],['bridge','EPS Bridge']].map(([id,l])=>(
+              <button key={id} className={`ptab ${accTab===id?'active':''}`} onClick={()=>setAccTab(id)}>{l}</button>
+            ))}
+          </div>
+        </div>
+        {accTab==='pf'?(
+          <table>
+            <thead><tr><th>($M)</th><th style={{color:'#d29922'}}>ACQ Standalone</th><th style={{color:'#2d7dd2'}}>TGT Standalone</th><th>Adjustments</th><th style={{color:'#3fb950'}}>Pro Forma Y1</th><th style={{color:'#3fb950'}}>Pro Forma Y2</th></tr></thead>
+            <tbody>
+              {[
+                {l:'Revenue',        acq:ACQUIRER.revenue, tgt:co.ltmRevenue, adj:ma.annualRevSyn*ramp[0], pf1:proForma[0].combRev, pf2:proForma[1].combRev, b:true},
+                {l:'EBITDA',         acq:ACQUIRER.ebitda,  tgt:co.ltmEBITDA,  adj:annualTotSyn*ramp[0]-maC.integCostY1, pf1:proForma[0].combEBITDA, pf2:proForma[1].combEBITDA, b:true, bt:true},
+                {l:'  Margin',       acq:null, tgt:null, adj:null, pf1:null, pf2:null, special:'margins'},
+                {l:'(–) D&A + PPA',  acq:ACQUIRER.da, tgt:co.ltmDA, adj:annualPPAAmort, pf1:proForma[0].combDA, pf2:proForma[1].combDA, bt:true},
+                {l:'EBIT',           acq:ACQUIRER.ebit, tgt:co.ltmEBITDA-co.ltmDA, adj:null, pf1:proForma[0].combEBIT, pf2:proForma[1].combEBIT, b:true},
+                {l:'(–) Interest',   acq:ACQUIRER.interestExp, tgt:null, adj:ma.newDebtInt, pf1:proForma[0].combInt, pf2:proForma[1].combInt, bt:true},
+                {l:'EBT',            acq:null, tgt:null, adj:null, pf1:proForma[0].combEBT, pf2:proForma[1].combEBT},
+                {l:'(–) Taxes',      acq:null, tgt:null, adj:null, pf1:proForma[0].combTax, pf2:proForma[1].combTax},
+                {l:'Net Income',     acq:ACQUIRER.netIncome, tgt:null, adj:null, pf1:proForma[0].combNI, pf2:proForma[1].combNI, b:true, bt:true},
+                {l:'Diluted Shares', acq:ACQUIRER.shares, tgt:null, adj:newShares>0?newShares:null, pf1:proForma[0].combShares, pf2:proForma[1].combShares, bt:true},
+                {l:'EPS',            acq:ACQUIRER.eps, tgt:null, adj:null, pf1:proForma[0].pfEPS, pf2:proForma[1].pfEPS, b:true, eps:true},
+              ].map((row,ri)=>{
+                if(row.special==='margins') return(
+                  <tr key={ri} style={{background:'rgba(0,0,0,0)'}}>
+                    <td style={{fontSize:11,color:'#484f58',paddingLeft:28}}>↳ Margin</td>
+                    <td style={{fontFamily:'DM Mono',fontSize:11,color:'#484f58'}}>{fP(ACQUIRER.ebitdaMargin)}</td>
+                    <td style={{fontFamily:'DM Mono',fontSize:11,color:'#484f58'}}>{fP(co.ltmEBITDA/co.ltmRevenue)}</td>
+                    <td/>
+                    <td style={{fontFamily:'DM Mono',fontSize:11,color:'#484f58'}}>{fP(proForma[0].combEBITDA/proForma[0].combRev)}</td>
+                    <td style={{fontFamily:'DM Mono',fontSize:11,color:'#484f58'}}>{fP(proForma[1].combEBITDA/proForma[1].combRev)}</td>
+                  </tr>
+                );
+                const fmt = row.eps ? v=>v!=null?`$${v.toFixed(2)}`:' — ' : v=>v!=null?fM(v):' — ';
+                const pfColor = yr => yr.accretion>=0?'#3fb950':'#f85149';
+                return(
+                  <tr key={ri} style={{borderTop:row.bt?'1px solid #21262d':undefined,background:row.b?'rgba(255,255,255,.02)':undefined}}>
+                    <td style={{fontSize:12,color:row.b?'#c9d1d9':'#8b949e',fontWeight:row.b?600:400}}>{row.l}</td>
+                    <td style={{fontFamily:'DM Mono',fontSize:12,color:'#8b949e'}}>{fmt(row.acq)}</td>
+                    <td style={{fontFamily:'DM Mono',fontSize:12,color:'#8b949e'}}>{fmt(row.tgt)}</td>
+                    <td style={{fontFamily:'DM Mono',fontSize:12,color:'#d29922'}}>{row.adj!=null?(row.adj>=0?'+':'')+fM(row.adj):' — '}</td>
+                    <td style={{fontFamily:'DM Mono',fontSize:12,color:row.eps?pfColor(proForma[0]):'#e6edf3',fontWeight:row.b?600:400}}>{fmt(row.pf1)}</td>
+                    <td style={{fontFamily:'DM Mono',fontSize:12,color:row.eps?pfColor(proForma[1]):'#e6edf3',fontWeight:row.b?600:400}}>{fmt(row.pf2)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ):(
+          <div style={{padding:'14px 18px'}}>
+            {[proForma[0],proForma[1]].map((pf,pi)=>(
+              <div key={pi} style={{marginBottom:pi===0?20:0}}>
+                <div style={{fontSize:11,fontWeight:600,color:'#8b949e',marginBottom:10}}>Year {pf.yr} EPS Bridge</div>
+                {(()=>{
+                  const W=500,H=80,bW=52,gap=10;
+                  const items=[
+                    {l:'ACQ\nStandalone',v:ACQUIRER.eps,type:'start',c:'#d29922'},
+                    {l:'Target\nContrib',v:(pf.combNI-ACQUIRER.netIncome)/pf.combShares,type:'mid',c:'#2d7dd2'},
+                    {l:'Synergies\n(net)',v:(pf.yr===1?annualTotSyn*ramp[0]-maC.integCostY1:annualTotSyn*ramp[1]-maC.integCostY2)*(1-cfg.taxRate/100)/pf.combShares,type:'mid',c:'#3fb950'},
+                    {l:'PPA\nAmort',v:-annualPPAAmort*(1-cfg.taxRate/100)/pf.combShares,type:'mid',c:'#f85149'},
+                    {l:'Acq Debt\nInterest',v:-ma.newDebtInt*(1-cfg.taxRate/100)/pf.combShares,type:'mid',c:'#f85149'},
+                    {l:'Dilution\n(new shs)',v:(pf.pfEPS - ACQUIRER.eps) - ((pf.combNI-ACQUIRER.netIncome)/pf.combShares) - (pf.yr===1?annualTotSyn*ramp[0]-maC.integCostY1:annualTotSyn*ramp[1]-maC.integCostY2)*(1-cfg.taxRate/100)/pf.combShares + annualPPAAmort*(1-cfg.taxRate/100)/pf.combShares + ma.newDebtInt*(1-cfg.taxRate/100)/pf.combShares, type:'mid',c:'#8b949e'},
+                    {l:'PF EPS',v:pf.pfEPS,type:'end',c:pf.accretion>=0?'#3fb950':'#f85149'},
+                  ];
+                  let run=ACQUIRER.eps;
+                  const bars=items.map(it=>{
+                    if(it.type==='start')return{...it,base:0,top:it.v};
+                    if(it.type==='end')  return{...it,base:0,top:it.v};
+                    const base=run; run+=it.v; return{...it,base,top:run};
+                  });
+                  const maxTop=Math.max(...bars.map(b=>Math.max(b.top,b.base)))*1.25;
+                  const minBot=Math.min(...bars.map(b=>Math.min(b.top,b.base,0)));
+                  const range=maxTop-minBot, sc=H/range;
+                  const toY=v=>H-(v-minBot)*sc;
+                  const xOf=i=>10+i*(bW+gap);
+                  return(
+                    <svg width={W} height={H+44} style={{overflow:'visible'}}>
+                      <line x1={0} y1={toY(0)} x2={W} y2={toY(0)} stroke="#21262d" strokeWidth={1}/>
+                      {bars.map((it,i)=>{
+                        const x=xOf(i), h=Math.abs(toY(it.top)-toY(it.base)), yTop=Math.min(toY(it.top),toY(it.base));
+                        return(<g key={i}>
+                          {i>0&&it.type!=='end'&&<line x1={x} y1={toY(it.base)} x2={x-gap} y2={toY(it.base)} stroke="#30363d" strokeDasharray="3 2" strokeWidth={1}/>}
+                          <rect x={x} y={yTop} width={bW} height={Math.max(h,2)} fill={it.c} rx={2} opacity={.85}/>
+                          <text x={x+bW/2} y={yTop-5} textAnchor="middle" fontSize={9} fill="#c9d1d9" fontFamily="DM Mono">{(it.type==='start'||it.type==='end')?`$${it.v.toFixed(2)}`:`${it.v>=0?'+':''}$${Math.abs(it.v).toFixed(2)}`}</text>
+                          {it.l.split('\n').map((ln,li)=><text key={li} x={x+bW/2} y={H+18+li*12} textAnchor="middle" fontSize={9} fill="#6e7681">{ln}</text>)}
+                        </g>);
+                      })}
+                    </svg>
+                  );
+                })()}
+                <div style={{marginTop:8,padding:'8px 12px',background:accBg(pf.accretion),borderRadius:6,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <span style={{fontSize:11,color:'#8b949e'}}>Year {pf.yr} {pf.accretion>=0?'Accretion':'Dilution'} to MAH EPS</span>
+                  <span style={{fontFamily:'DM Mono',fontSize:16,fontWeight:700,color:accFg(pf.accretion)}}>{pf.accretion>=0?'+':''}{fP(pf.accretion)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Value creation + deal structure sensitivity */}
+      <div className="g2">
+        <div className="card cp" style={{marginBottom:0}}>
+          <div className="igtitle">Value Creation Summary</div>
           {[
-            {l:'Standalone DCF Value (GG)', v:standaloneEV,  c:'#2d7dd2', pct:null},
-            {l:`Control Premium (${maC.offerPremium.toFixed(1)}%)`,v:premium, c:'#d29922', pct:premium/standaloneEV, plus:true},
-            {l:'Offer Price (EV)',          v:offerEV,       c:'#3fb950', pct:null, bold:true},
-          ].map((row,i)=>(
-            <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'9px 0',borderBottom:i<2?'1px solid #21262d':undefined}}>
-              <div style={{width:10,height:10,borderRadius:2,background:row.c,flexShrink:0}}/>
-              <div style={{flex:1,fontSize:12,color:row.bold?'#e6edf3':'#c9d1d9',fontWeight:row.bold?600:400}}>{row.l}</div>
-              {row.pct!=null&&<div style={{fontSize:11,color:'#6e7681',fontFamily:'DM Mono',marginRight:8}}>{row.plus?'+':''}{fP(row.pct)}</div>}
-              <div style={{fontFamily:'DM Mono',fontSize:row.bold?15:13,color:row.c,fontWeight:row.bold?700:500}}>{row.plus?`+${fM(row.v)}`:fM(row.v)}</div>
+            {l:'PV of Net Synergies',            v:fM(pvNetSyn),     c:'#3fb950'},
+            {l:'(–) Control Premium Paid',        v:fM(premium),      c:'#f85149'},
+            {l:'Value Created / (Destroyed)',     v:fM(valueCreated), c:vcFg(valueCreated), bold:true},
+          ].map((r,i)=>(
+            <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:i<2?'1px solid #21262d':undefined}}>
+              <span style={{fontSize:12,color:r.bold?'#c9d1d9':'#8b949e',fontWeight:r.bold?600:400}}>{r.l}</span>
+              <span style={{fontFamily:'DM Mono',fontSize:r.bold?14:12,color:r.c,fontWeight:r.bold?700:500}}>{r.v}</span>
             </div>
           ))}
-          <div style={{marginTop:12,display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-            {[{l:'Cash Consideration',v:fM(cashConsid),s:`${maC.cashPct}% of offer`},{l:'Stock Consideration',v:fM(stockConsid),s:`${(100-maC.cashPct).toFixed(0)}% of offer`}].map(k=>(
-              <div key={k.l} style={{padding:'9px 12px',background:'#0d1117',borderRadius:6}}>
-                <div style={{fontSize:10,color:'#484f58',textTransform:'uppercase',letterSpacing:'.05em'}}>{k.l}</div>
-                <div style={{fontFamily:'DM Mono',fontSize:14,color:'#c9d1d9',fontWeight:600,marginTop:3}}>{k.v}</div>
-                <div style={{fontSize:10,color:'#6e7681',marginTop:2}}>{k.s}</div>
+          <div style={{marginTop:12,padding:'10px 12px',background:vcBg(valueCreated),borderRadius:6}}>
+            <div style={{fontSize:9,color:'#6e7681',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:3}}>Value Created % of Offer EV</div>
+            <div style={{fontFamily:'DM Mono',fontSize:20,fontWeight:700,color:vcFg(valueCreated)}}>{fP(valueCreated/offerEV)}</div>
+          </div>
+          <div style={{marginTop:10,padding:'10px 12px',background:'rgba(45,125,210,.08)',borderRadius:6}}>
+            <div style={{fontSize:9,color:'#6e7681',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:3}}>Break-Even Run-Rate Synergies</div>
+            <div style={{fontFamily:'DM Mono',fontSize:15,fontWeight:600,color:'#58a6ff'}}>{fM(breakEvenSyn)}</div>
+            <div style={{fontSize:10,color:'#6e7681',marginTop:2}}>{fP(breakEvenSyn/co.ltmRevenue)} of target revenue</div>
+          </div>
+          <div style={{marginTop:10,display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+            {[{l:'Y1 Acc/(Dil)',v:`${proForma[0].accretion>=0?'+':''}${fP(proForma[0].accretion)}`,c:accFg(proForma[0].accretion)},{l:'Y2 Acc/(Dil)',v:`${proForma[1].accretion>=0?'+':''}${fP(proForma[1].accretion)}`,c:accFg(proForma[1].accretion)},{l:'New Shares',v:`${newShares.toFixed(1)}M`},{l:'Acq Debt',v:fM(debtFinanced)}].map(k=>(
+              <div key={k.l} style={{padding:'7px 10px',background:'#0d1117',borderRadius:6}}>
+                <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.05em'}}>{k.l}</div>
+                <div style={{fontFamily:'DM Mono',fontSize:13,color:k.c||'#c9d1d9',fontWeight:k.c?600:400,marginTop:2}}>{k.v}</div>
               </div>
             ))}
           </div>
         </div>
-      </div>
 
-      {/* Synergies build */}
-      <div className="card" style={{marginBottom:14}}>
-        <div className="clabel">Synergies Build ($M)</div>
-        <table>
-          <thead><tr><th>($M)</th>{synRows.map(r=><th key={r.year}>Year {r.year}</th>)}<th>Run-Rate</th></tr></thead>
-          <tbody>
-            <TR label="Cost Synergies"    vals={[...synRows.map(r=>fM(r.costSyn)), fM(ma.annualCostSyn)]}/>
-            <TR label="Revenue Synergies" vals={[...synRows.map(r=>fM(r.revSyn)),  fM(ma.annualRevSyn)]}/>
-            <TR bold borderTop label="Gross Synergies" vals={[...synRows.map(r=>fM(r.grossSyn)), fM(annualTotSyn)]}/>
-            <TR dim  indent label="(–) Integration Costs" vals={[...synRows.map(r=>fM(r.integ)), '—']}/>
-            <TR bold borderTop green label="Net Synergies" vals={[...synRows.map(r=>fM(r.netSyn)), fM(annualTotSyn)]}/>
-            <TR dim borderTop label="PV of Net Synergies" vals={[...synRows.map(r=>fM(r.pv)), fM(pvNetSyn)]}/>
-          </tbody>
-        </table>
-        <div style={{padding:'10px 18px',borderTop:'1px solid #21262d',display:'flex',gap:20,flexWrap:'wrap'}}>
-          {[{l:'PV Gross Synergies',v:fM(ma.pvSyn)},{l:'PV Integration Costs',v:fM(ma.pvInteg)},{l:'PV Net Synergies',v:fM(pvNetSyn),c:'#3fb950'},{l:'Synergy Discount Rate',v:fP(synDisc)}].map(k=>(
-            <div key={k.l}><div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.05em'}}>{k.l}</div><div style={{fontFamily:'DM Mono',fontSize:13,color:k.c||'#c9d1d9',fontWeight:k.c?600:400,marginTop:2}}>{k.v}</div></div>
-          ))}
-        </div>
-      </div>
-
-      {/* Value creation summary */}
-      <div className="g2">
-        <div className="card cp">
-          <div className="igtitle">Value Creation Summary</div>
-          {[
-            {l:'PV of Net Synergies',  v:fM(pvNetSyn),    c:'#3fb950'},
-            {l:'(–) Control Premium',  v:fM(premium),     c:'#f85149'},
-            {l:'Value Created / (Destroyed)', v:fM(valueCreated), c:vcFg(valueCreated), bold:true},
-          ].map((r,i)=>(
-            <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:i<2?'1px solid #21262d':undefined}}>
-              <span style={{fontSize:12,color:r.bold?'#c9d1d9':'#8b949e',fontWeight:r.bold?600:400}}>{r.l}</span>
-              <span style={{fontFamily:'DM Mono',fontSize:r.bold?15:13,color:r.c,fontWeight:r.bold?700:500}}>{r.v}</span>
-            </div>
-          ))}
-          <div style={{marginTop:12,padding:'10px 12px',background:vcBg(valueCreated),borderRadius:6}}>
-            <div style={{fontSize:10,color:'#6e7681',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:4}}>Value Created % of Offer</div>
-            <div style={{fontFamily:'DM Mono',fontSize:18,fontWeight:700,color:vcFg(valueCreated)}}>{fP(valueCreated/offerEV)}</div>
+        {/* Deal structure sensitivity */}
+        <div className="card" style={{marginBottom:0}}>
+          <div className="clabel">Y2 Acc/(Dil) — Cash Mix % (rows) × Offer Premium % (cols)</div>
+          <div style={{overflowX:'auto'}}>
+            <table style={{minWidth:420}}>
+              <thead><tr>
+                <th style={{color:'#484f58'}}>↓ Cash%  Prem →</th>
+                {premCols.map(p=><th key={p} style={{color:Math.abs(p-maC.offerPremium)<3?'#58a6ff':undefined,background:Math.abs(p-maC.offerPremium)<3?'rgba(45,125,210,.08)':undefined}}>{p}%</th>)}
+              </tr></thead>
+              <tbody>
+                {cashPctRows.map((cp,ri)=>(
+                  <tr key={cp}>
+                    <td style={{fontFamily:'DM Mono',fontSize:11,color:Math.abs(cp-maC.cashPct)<6?'#58a6ff':'#6e7681',fontWeight:Math.abs(cp-maC.cashPct)<6?600:500,background:Math.abs(cp-maC.cashPct)<6?'rgba(45,125,210,.08)':undefined,borderRight:'1px solid #21262d'}}>{cp}%</td>
+                    {premCols.map((p,ci)=>{
+                      const v=structSens[ri][ci];
+                      const isA=Math.abs(cp-maC.cashPct)<6&&Math.abs(p-maC.offerPremium)<3;
+                      const bg=v>=0?`rgba(63,185,80,${Math.min(.28,v*3)})`:`rgba(248,81,73,${Math.min(.24,Math.abs(v)*3)})`;
+                      return <td key={p} style={{background:bg,color:v>=0?'#3fb950':'#f85149',fontFamily:'DM Mono',fontSize:11,outline:isA?'2px solid #2d7dd2':'none',outlineOffset:'-2px',fontWeight:isA?700:400}}>{v>=0?'+':''}{fP(v)}</td>;
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div style={{marginTop:10,padding:'10px 12px',background:'rgba(45,125,210,.08)',borderRadius:6}}>
-            <div style={{fontSize:10,color:'#6e7681',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:4}}>Break-Even Synergy Run-Rate</div>
-            <div style={{fontFamily:'DM Mono',fontSize:15,fontWeight:600,color:'#58a6ff'}}>{fM(breakEvenSyn)}</div>
-            <div style={{fontSize:10,color:'#6e7681',marginTop:2}}>{fP(breakEvenSyn/co.ltmRevenue)} of target revenue</div>
-          </div>
-        </div>
-        <div className="card cp">
-          <div className="igtitle">Accretion / Dilution (Year 2)</div>
-          {[
-            {l:'Acquirer Standalone EPS',v:`\$${ACQUIRER.eps.toFixed(2)}`},
-            {l:'Pro Forma EPS',           v:`\$${pfEPS.toFixed(2)}`, bold:true},
-            {l:'EPS Δ',                   v:`${accretion>=0?'+':''}${fP(accretion)}`, bold:true, c:accFg(accretion)},
-          ].map((r,i)=>(
-            <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:i<2?'1px solid #21262d':undefined}}>
-              <span style={{fontSize:12,color:r.bold?'#c9d1d9':'#8b949e',fontWeight:r.bold?600:400}}>{r.l}</span>
-              <span style={{fontFamily:'DM Mono',fontSize:r.bold?14:12,color:r.c||'#e6edf3',fontWeight:r.bold?700:500}}>{r.v}</span>
-            </div>
-          ))}
-          <div style={{marginTop:12,padding:'10px 12px',background:accretion>=0?'rgba(63,185,80,.12)':'rgba(248,81,73,.12)',borderRadius:6}}>
-            <div style={{fontSize:10,color:'#6e7681',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:4}}>{accretion>=0?'Accretive':'Dilutive'} to Acquirer EPS</div>
-            <div style={{fontFamily:'DM Mono',fontSize:22,fontWeight:700,color:accFg(accretion)}}>{accretion>=0?'+':''}{fP(accretion)}</div>
-            <div style={{fontSize:10,color:'#6e7681',marginTop:3}}>Year 2 pro forma basis</div>
-          </div>
-          <div style={{marginTop:10,padding:'8px 12px',background:'#0d1117',borderRadius:6,display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-            {[{l:'New Shares Issued',v:`${ma.newShares.toFixed(1)}M`},{l:'Debt Financed',v:fM(ma.debtFinanced)}].map(k=>(
-              <div key={k.l}><div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.05em'}}>{k.l}</div><div style={{fontFamily:'DM Mono',fontSize:12,color:'#c9d1d9',fontWeight:500,marginTop:2}}>{k.v}</div></div>
-            ))}
+          <div style={{padding:'8px 18px',borderTop:'1px solid #21262d',fontSize:10,color:'#484f58'}}>
+            Higher cash % → more accretive (avoids share dilution) but increases financial risk. Higher premium → harder to be accretive without synergies.
           </div>
         </div>
       </div>
 
-      {/* Sensitivity: premium × cost syn */}
-      <div className="card">
+      {/* Value created heatmap */}
+      <div className="card" style={{marginTop:14}}>
         <div className="clabel">Value Created ($M) — Offer Premium (rows) × Cost Synergies % Rev (cols)</div>
         <div style={{overflowX:'auto'}}>
           <table style={{minWidth:520}}>
@@ -1020,13 +1252,304 @@ function MASection({ cfg, co, dcf, maC, setMaC }) {
                     const cell=sensMat[ri][ci];
                     const isA=Math.abs(prem-maC.offerPremium)<.5&&Math.abs(s-maC.costSynPct)<.01;
                     const bg=cell.vc>=0?`rgba(63,185,80,${Math.min(.25,cell.vc/standaloneEV*4)})`:`rgba(248,81,73,${Math.min(.22,Math.abs(cell.vc)/standaloneEV*4)})`;
-                    const fg=cell.vc>=0?'#3fb950':'#f85149';
-                    return <td key={s} style={{background:bg,color:fg,fontFamily:'DM Mono',fontSize:11,outline:isA?'2px solid #2d7dd2':'none',outlineOffset:'-2px',fontWeight:isA?700:400}}>{fM(cell.vc,0)}</td>;
+                    return <td key={s} style={{background:bg,color:cell.vc>=0?'#3fb950':'#f85149',fontFamily:'DM Mono',fontSize:11,outline:isA?'2px solid #2d7dd2':'none',outlineOffset:'-2px',fontWeight:isA?700:400}}>{fM(cell.vc,0)}</td>;
                   })}
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Debt Paydown Waterfall ────────────────────────────────────────────────────
+function WaterfallSection({lbo, cfg}){
+  const {proj, tlbP, snP, debt0} = lbo;
+  // Build annual cash allocation: FCF → mandatory amort → ECF sweep → remaining
+  const years = proj.map((p, i) => {
+    const prevTlb = i === 0 ? tlbP : proj[i-1].tlbBal;
+    const mand = Math.min(prevTlb, tlbP * 0.01);
+    const sweep = Math.max(0, p.tlbPay - mand);
+    const remaining = p.fcf - p.tlbPay; // leftover after all debt service
+    return { year: p.year, fcf: p.fcf, interest: p.totI, taxes: p.taxes, capex: p.capex, dwc: p.dwc,
+      mand, sweep, remaining: Math.max(0, remaining),
+      ebitda: p.ebitda, tlbBal: p.tlbBal, snBal: p.snBal };
+  });
+
+  const W = 760, H = 160, bW = 38, bGap = 8;
+  const allVals = years.flatMap(y => [y.interest, y.taxes, y.capex, y.mand, y.sweep, y.remaining]);
+  const maxV = Math.max(...allVals, 1);
+  const sc = H / maxV;
+  const segments = [
+    {key:'interest', label:'Interest',  color:'#f85149'},
+    {key:'taxes',    label:'Taxes',     color:'#d29922'},
+    {key:'capex',    label:'CapEx',     color:'#8b949e'},
+    {key:'mand',     label:'Mand Amort',color:'#58a6ff'},
+    {key:'sweep',    label:'ECF Sweep', color:'#2d7dd2'},
+    {key:'remaining',label:'Cash Accum',color:'#3fb950'},
+  ];
+  const xOf = (yi, si) => 20 + yi * (segments.length * (bW + 2) + bGap * 2) + si * (bW + 2);
+
+  return (
+    <div className="sec">
+      <h2 className="sec-title">Debt Paydown Waterfall</h2>
+      <div className="card" style={{marginBottom:14}}>
+        <div className="clabel">Annual FCF Allocation ($M)</div>
+        <div style={{padding:'0 18px 18px', overflowX:'auto'}}>
+          <svg width={W} height={H + 60} style={{overflow:'visible', minWidth:600}}>
+            {years.map((y, yi) => {
+              const xStart = xOf(yi, 0);
+              return (
+                <g key={yi}>
+                  <text x={xStart + (segments.length * (bW+2))/2 - 6} y={H + 48} textAnchor="middle" fontSize={11} fill="#6e7681">Y{y.year}</text>
+                  <text x={xStart + (segments.length * (bW+2))/2 - 6} y={H + 60} textAnchor="middle" fontSize={10} fill="#484f58" fontFamily="DM Mono">{(y.fcf).toFixed(0)}M</text>
+                  {segments.map((seg, si) => {
+                    const val = y[seg.key];
+                    const h = Math.max(val * sc, val > 0 ? 1 : 0);
+                    const x = xOf(yi, si);
+                    return (
+                      <g key={si}>
+                        <rect x={x} y={H - h} width={bW} height={h} fill={seg.color} rx={2} opacity={0.85}/>
+                        {h > 14 && <text x={x + bW/2} y={H - h/2 + 4} textAnchor="middle" fontSize={9} fill="#fff" fontFamily="DM Mono" opacity={0.9}>{val.toFixed(0)}</text>}
+                      </g>
+                    );
+                  })}
+                </g>
+              );
+            })}
+            {/* Legend */}
+            {segments.map((seg, i) => (
+              <g key={i}>
+                <rect x={20 + i * 105} y={H + 20} width={9} height={9} fill={seg.color} rx={2}/>
+                <text x={33 + i * 105} y={H + 28} fontSize={10} fill="#6e7681">{seg.label}</text>
+              </g>
+            ))}
+          </svg>
+        </div>
+      </div>
+
+      <div className="card" style={{marginBottom:14}}>
+        <div className="clabel">Debt Paydown Detail ($M)</div>
+        <table>
+          <thead><tr><th>($M)</th><th>Entry</th>{proj.map(p=><th key={p.year}>Y{p.year}</th>)}</tr></thead>
+          <tbody>
+            <TR bold label="EBITDA"             vals={['—', ...proj.map(p=>fM(p.ebitda))]}/>
+            <TR dim indent label="(–) Interest" vals={['—', ...proj.map(p=>fM(p.totI))]}/>
+            <TR dim indent label="(–) Taxes"    vals={['—', ...proj.map(p=>fM(p.taxes))]}/>
+            <TR dim indent label="(–) CapEx"    vals={['—', ...proj.map(p=>fM(p.capex))]}/>
+            <TR dim indent label="(–) Δ WC"     vals={['—', ...proj.map(p=>fM(p.dwc))]}/>
+            <TR bold green borderTop label="Free Cash Flow" vals={['—', ...proj.map(p=>fM(p.fcf))]}/>
+            <TR borderTop label="Mandatory Amort (1%)" vals={[fM(tlbP*0.01), ...proj.map(p=>fM(Math.min(p.tlbPay, tlbP*0.01)))]}/>
+            <TR label="ECF Sweep (75%)"          vals={['—', ...proj.map(p=>fM(Math.max(0, p.tlbPay - tlbP*0.01)))]}/>
+            <TR bold borderTop label="Total TLB Paydown" vals={['—', ...proj.map(p=>fM(p.tlbPay))]}/>
+            <TR borderTop bold label="TLB Balance" vals={[fM(tlbP), ...proj.map(p=>fM(p.tlbBal))]}/>
+            <TR bold label="SN Balance"           vals={[fM(snP),  ...proj.map(p=>fM(p.snBal))]}/>
+            <TR bold borderTop label="Total Debt" vals={[fM(debt0), ...proj.map(p=>fM(p.totDebt))]}/>
+            <TR dim label="Debt Paid Down"        vals={['—', ...proj.map(p=>fM(debt0 - p.totDebt))]}/>
+            <TR dim label="% of Entry Debt Repaid" vals={['—', ...proj.map(p=>fP((debt0-p.totDebt)/debt0))]}/>
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card cp">
+        <div className="igtitle">Cumulative Debt Reduction</div>
+        {(() => {
+          const W2 = 560, H2 = 90;
+          const totals = [{label:'Entry', val:debt0}, ...proj.map(p=>({label:`Y${p.year}`, val:p.totDebt}))];
+          const maxD = debt0;
+          const pts = totals.map((t,i)=>`${(i/(totals.length-1))*W2},${H2 - (t.val/maxD)*H2}`).join(' ');
+          return (
+            <svg width={W2} height={H2+30} style={{overflow:'visible'}}>
+              <polyline points={pts} fill="none" stroke="#f85149" strokeWidth={2} strokeLinejoin="round" strokeDasharray="5 3"/>
+              {totals.map((t,i)=>{
+                const x=(i/(totals.length-1))*W2, y=H2-(t.val/maxD)*H2;
+                return (<g key={i}>
+                  <circle cx={x} cy={y} r={4} fill={i===0?'#f85149':'#2d7dd2'}/>
+                  <text x={x} y={y-8} textAnchor="middle" fontSize={10} fill="#8b949e" fontFamily="DM Mono">{fM(t.val,0)}</text>
+                  <text x={x} y={H2+18} textAnchor="middle" fontSize={10} fill="#6e7681">{t.label}</text>
+                </g>);
+              })}
+              <line x1={0} y1={H2} x2={W2} y2={H2} stroke="#21262d" strokeWidth={1}/>
+            </svg>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
+// ── Public Comps ──────────────────────────────────────────────────────────────
+const DEFAULT_COMPS = [
+  { name:'TransDigm Group',   ticker:'TDG',  ev:30400, ebitda:2280, rev:6890,  evEbitda:null, evRev:null },
+  { name:'Heico Corporation', ticker:'HEI',  ev:22100, ebitda:1010, rev:3700,  evEbitda:null, evRev:null },
+  { name:'Curtiss-Wright',    ticker:'CW',   ev:8200,  ebitda:510,  rev:3100,  evEbitda:null, evRev:null },
+  { name:'Woodward',          ticker:'WWD',  ev:5600,  ebitda:360,  rev:2900,  evEbitda:null, evRev:null },
+  { name:'Moog Inc.',         ticker:'MOG.A',ev:3800,  ebitda:280,  rev:3300,  evEbitda:null, evRev:null },
+];
+
+function CompsSection({lbo, dcf, cfg, co}){
+  const [comps, setComps] = useState(() => DEFAULT_COMPS.map(c=>({...c, evEbitda:+(c.ev/c.ebitda).toFixed(1), evRev:+(c.ev/c.rev).toFixed(2)})));
+  const [editing, setEditing] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newComp, setNewComp] = useState({name:'',ticker:'',ev:'',ebitda:'',rev:''});
+
+  const upd = (i,k,v) => setComps(prev => prev.map((c,ci)=>{
+    if(ci!==i)return c;
+    const updated = {...c,[k]:parseFloat(v)||0};
+    return {...updated, evEbitda:+(updated.ev/updated.ebitda).toFixed(1), evRev:+(updated.ev/updated.rev).toFixed(2)};
+  }));
+  const del = (i) => setComps(prev=>prev.filter((_,ci)=>ci!==i));
+  const addComp = () => {
+    if(!newComp.name||!newComp.ev||!newComp.ebitda)return;
+    const ev=parseFloat(newComp.ev), eb=parseFloat(newComp.ebitda), rv=parseFloat(newComp.rev)||1;
+    setComps(prev=>[...prev,{name:newComp.name,ticker:newComp.ticker.toUpperCase(),ev,ebitda:eb,rev:rv,evEbitda:+(ev/eb).toFixed(1),evRev:+(ev/rv).toFixed(2)}]);
+    setNewComp({name:'',ticker:'',ev:'',ebitda:'',rev:''});
+    setShowAdd(false);
+  };
+
+  const evEbitdas = comps.map(c=>c.evEbitda).filter(v=>v>0&&isFinite(v));
+  const medEE  = [...evEbitdas].sort((a,b)=>a-b)[Math.floor(evEbitdas.length/2)] || 0;
+  const meanEE = evEbitdas.reduce((s,v)=>s+v,0) / (evEbitdas.length||1);
+  const minEE  = Math.min(...evEbitdas);
+  const maxEE  = Math.max(...evEbitdas);
+
+  const implEV_med  = co.ltmEBITDA * medEE;
+  const implEV_mean = co.ltmEBITDA * meanEE;
+  const entryEV     = lbo.entryEV;
+
+  // Football field data
+  const ffMin = Math.min(implEV_med*.85, dcf.evGG*.85, entryEV*.85);
+  const ffMax = Math.max(implEV_mean*1.15, dcf.evGG*1.15, entryEV*1.15, co.ltmEBITDA*maxEE*1.05);
+  const ffW   = 440;
+  const toX   = v => Math.max(0, Math.min(ffW, ((v-ffMin)/(ffMax-ffMin))*ffW));
+
+  return (
+    <div className="sec">
+      <h2 className="sec-title">Public Comps</h2>
+
+      {/* Stats bar */}
+      <div className="g4" style={{marginBottom:14}}>
+        {[
+          {l:'Median EV/EBITDA', v:fX(medEE),  s:`${comps.length} comps`},
+          {l:'Mean EV/EBITDA',   v:fX(meanEE), s:`Range: ${fX(minEE)} – ${fX(maxEE)}`},
+          {l:'Implied EV (Median)', v:fM(implEV_med),  s:`vs entry ${fM(entryEV)}`},
+          {l:'Entry vs Median',  v:fP((entryEV-implEV_med)/implEV_med), s:entryEV>implEV_med?'premium to comps':'discount to comps'},
+        ].map(k=>(
+          <div key={k.l} className="kc"><div className="kl">{k.l}</div><div className="kv" style={{fontSize:17}}>{k.v}</div><div className="ks">{k.s}</div></div>
+        ))}
+      </div>
+
+      {/* Comps table */}
+      <div className="card" style={{marginBottom:14}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'13px 18px 9px'}}>
+          <span style={{fontSize:10,fontWeight:700,color:'#6e7681',textTransform:'uppercase',letterSpacing:'.07em'}}>Comparable Companies ($M)</span>
+          <button onClick={()=>setShowAdd(s=>!s)} style={{padding:'4px 12px',borderRadius:5,border:'1px solid #30363d',background:showAdd?'rgba(45,125,210,.15)':'transparent',color:showAdd?'#58a6ff':'#6e7681',fontSize:10,fontWeight:600,cursor:'pointer',textTransform:'uppercase',letterSpacing:'.05em'}}>
+            {showAdd?'✕ Cancel':'+ Add Comp'}
+          </button>
+        </div>
+        {showAdd && (
+          <div style={{margin:'0 18px 12px',padding:'12px 14px',background:'#0d1117',borderRadius:7,display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr auto',gap:8,alignItems:'end'}}>
+            {[{k:'name',ph:'Company Name'},{k:'ticker',ph:'Ticker'},{k:'ev',ph:'EV ($M)'},{k:'ebitda',ph:'EBITDA ($M)'},{k:'rev',ph:'Revenue ($M)'}].map(f=>(
+              <div key={f.k}>
+                <div className="ilabel">{f.ph}</div>
+                <input type={f.k==='name'||f.k==='ticker'?'text':'number'} placeholder={f.ph} value={newComp[f.k]}
+                  onChange={e=>setNewComp(p=>({...p,[f.k]:e.target.value}))}
+                  style={{background:'#161b22',border:'1px solid #30363d',color:'#e6edf3',borderRadius:5,padding:'5px 8px',fontFamily:'DM Mono',fontSize:12,width:'100%',outline:'none'}}/>
+              </div>
+            ))}
+            <button onClick={addComp} style={{padding:'6px 14px',borderRadius:5,border:'none',background:'#2d7dd2',color:'#fff',fontSize:11,fontWeight:600,cursor:'pointer'}}>Add</button>
+          </div>
+        )}
+        <table>
+          <thead>
+            <tr>
+              <th>Company</th><th>Ticker</th>
+              <th>EV ($M)</th><th>EBITDA ($M)</th><th>Revenue ($M)</th>
+              <th>EV/EBITDA</th><th>EV/Rev</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {comps.map((c,i)=>(
+              <tr key={i} style={{borderTop:'1px solid #21262d'}}>
+                <td style={{fontSize:12,color:'#c9d1d9',fontWeight:500}}>
+                  {editing===i
+                    ? <input type="text" value={c.name} onChange={e=>upd(i,'name',e.target.value)}
+                        style={{background:'#0d1117',border:'1px solid #2d7dd2',color:'#e6edf3',borderRadius:4,padding:'3px 6px',fontSize:12,width:160}}/>
+                    : c.name}
+                </td>
+                <td style={{fontFamily:'DM Mono',fontSize:11,color:'#6e7681'}}>{c.ticker}</td>
+                {['ev','ebitda','rev'].map(k=>(
+                  <td key={k} style={{fontFamily:'DM Mono',fontSize:12,color:'#8b949e'}}>
+                    {editing===i
+                      ? <input type="number" value={c[k]} onChange={e=>upd(i,k,e.target.value)}
+                          style={{background:'#0d1117',border:'1px solid #2d7dd2',color:'#e6edf3',borderRadius:4,padding:'3px 6px',fontSize:12,width:80,fontFamily:'DM Mono'}}/>
+                      : fM(c[k],0)}
+                  </td>
+                ))}
+                <td style={{fontFamily:'DM Mono',fontSize:12,color:'#e6edf3',fontWeight:500}}>{fX(c.evEbitda)}</td>
+                <td style={{fontFamily:'DM Mono',fontSize:12,color:'#8b949e'}}>{fX(c.evRev)}</td>
+                <td style={{textAlign:'right',paddingRight:12}}>
+                  <button onClick={()=>setEditing(editing===i?null:i)} style={{marginRight:6,padding:'2px 8px',borderRadius:4,border:'1px solid #30363d',background:'transparent',color:'#6e7681',fontSize:10,cursor:'pointer'}}>{editing===i?'Done':'Edit'}</button>
+                  <button onClick={()=>del(i)} style={{padding:'2px 8px',borderRadius:4,border:'1px solid #30363d',background:'transparent',color:'#6e7681',fontSize:10,cursor:'pointer'}}>✕</button>
+                </td>
+              </tr>
+            ))}
+            {/* Summary row */}
+            <tr style={{borderTop:'2px solid #30363d',background:'rgba(255,255,255,.025)'}}>
+              <td style={{fontSize:11,fontWeight:700,color:'#8b949e',paddingLeft:18}} colSpan={5}>Median</td>
+              <td style={{fontFamily:'DM Mono',fontSize:12,color:'#58a6ff',fontWeight:700}}>{fX(medEE)}</td>
+              <td colSpan={2}/>
+            </tr>
+            <tr style={{background:'rgba(255,255,255,.015)'}}>
+              <td style={{fontSize:11,fontWeight:700,color:'#8b949e',paddingLeft:18}} colSpan={5}>Mean</td>
+              <td style={{fontFamily:'DM Mono',fontSize:12,color:'#8b949e',fontWeight:600}}>{fX(meanEE)}</td>
+              <td colSpan={2}/>
+            </tr>
+            {/* VPC row */}
+            <tr style={{borderTop:'1px solid #21262d',background:'rgba(45,125,210,.06)'}}>
+              <td style={{fontSize:12,fontWeight:700,color:'#58a6ff',paddingLeft:18}}>{co.short} (LTM)</td>
+              <td style={{fontFamily:'DM Mono',fontSize:11,color:'#484f58'}}>—</td>
+              <td style={{fontFamily:'DM Mono',fontSize:12,color:'#58a6ff',fontWeight:600}}>{fM(entryEV,0)}</td>
+              <td style={{fontFamily:'DM Mono',fontSize:12,color:'#8b949e'}}>{fM(co.ltmEBITDA,0)}</td>
+              <td style={{fontFamily:'DM Mono',fontSize:12,color:'#8b949e'}}>{fM(co.ltmRevenue,0)}</td>
+              <td style={{fontFamily:'DM Mono',fontSize:12,color:'#58a6ff',fontWeight:700}}>{fX(cfg.entryMultiple)}</td>
+              <td style={{fontFamily:'DM Mono',fontSize:12,color:'#8b949e'}}>{fX(entryEV/co.ltmRevenue)}</td>
+              <td/>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Benchmarking football field */}
+      <div className="card cp">
+        <div className="igtitle">Valuation Benchmarking — EV ($M)</div>
+        {[
+          {l:`Comps Range (${fX(minEE)} – ${fX(maxEE)})`, lo:co.ltmEBITDA*minEE, hi:co.ltmEBITDA*maxEE, base:implEV_med, c:'#58a6ff'},
+          {l:`DCF Gordon Growth`,                          lo:dcf.evGG*.9,         hi:dcf.evGG*1.1,       base:dcf.evGG,   c:'#3fb950'},
+          {l:`Entry Price (${fX(cfg.entryMultiple)} entry)`, lo:entryEV*.97,       hi:entryEV*1.03,       base:entryEV,    c:'#d29922'},
+        ].map((s,i)=>(
+          <div key={i} style={{marginBottom:18}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
+              <span style={{fontSize:11,color:'#8b949e'}}>{s.l}</span>
+              <span style={{fontFamily:'DM Mono',fontSize:11,color:s.c}}>{fM(s.lo,0)} — {fM(s.hi,0)}</span>
+            </div>
+            <div style={{position:'relative',height:22,background:'#0d1117',borderRadius:4}}>
+              <div style={{position:'absolute',left:`${(toX(s.lo)/ffW)*100}%`,width:`${((toX(s.hi)-toX(s.lo))/ffW)*100}%`,top:0,height:'100%',background:s.c,borderRadius:4,opacity:.7}}/>
+              <div style={{position:'absolute',left:`${(toX(s.base)/ffW)*100}%`,top:0,width:2,height:'100%',background:'#fff',opacity:.9}}/>
+            </div>
+          </div>
+        ))}
+        <div style={{borderTop:'1px solid #21262d',paddingTop:10,display:'flex',gap:24,flexWrap:'wrap'}}>
+          {[
+            {l:'Comps Median Implied EV', v:fM(implEV_med),  c:'#58a6ff'},
+            {l:'Comps Mean Implied EV',   v:fM(implEV_mean), c:'#8b949e'},
+            {l:'Entry Price',             v:fM(entryEV),     c:'#d29922'},
+            {l:'Premium to Comps Median', v:fP((entryEV-implEV_med)/implEV_med), c:entryEV>implEV_med?'#f85149':'#3fb950'},
+          ].map(k=>(
+            <div key={k.l}><div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.05em'}}>{k.l}</div><div style={{fontFamily:'DM Mono',fontSize:13,color:k.c,fontWeight:600,marginTop:3}}>{k.v}</div></div>
+          ))}
         </div>
       </div>
     </div>
@@ -1078,8 +1601,10 @@ const NAV=[
   {id:'debt',     label:'Debt Schedule',    icon:'≡', group:'LBO'},
   {id:'returns',  label:'Returns & IRR',    icon:'◎', group:'LBO'},
   {id:'sens',     label:'Sensitivity',      icon:'⊞', group:'LBO'},
+  {id:'waterfall',label:'Debt Waterfall',   icon:'⬇', group:'LBO'},
   {id:'dcf',      label:'DCF Analysis',     icon:'◇', group:'DCF'},
   {id:'scenarios',label:'Scenario Compare', icon:'≈', group:'DCF'},
+  {id:'comps',    label:'Public Comps',     icon:'⊜', group:'DCF'},
   {id:'ma',       label:'M&A DCF',          icon:'⊗', group:'M&A'},
 ];
 const GROUPS=[...new Set(NAV.map(n=>n.group))];
@@ -1105,6 +1630,15 @@ function App(){
     return()=>window.removeEventListener('message',h);
   },[]);
 
+  const handleReset=()=>{
+    if(window.confirm('Reset all inputs to defaults?')){
+      setCfg(TWEAK_DEFAULTS);
+      setCo(CO_DEF);
+      setMaC(MA_DEF);
+      localStorage.removeItem('lbo_v3');
+    }
+  };
+
   const sections={
     inputs:   <InputsSection cfg={cfg} setCfg={setCfg} co={co} setCo={setCo}/>,
     overview: <OverviewSection lbo={lbo} dcf={dcf} cfg={cfg} co={co}/>,
@@ -1113,8 +1647,10 @@ function App(){
     debt:     <DebtSection lbo={lbo} cfg={cfg}/>,
     returns:  <ReturnsSection lbo={lbo} cfg={cfg}/>,
     sens:     <SensSection lbo={lbo} cfg={cfg}/>,
+    waterfall:<WaterfallSection lbo={lbo} cfg={cfg}/>,
     dcf:      <DCFSection dcf={dcf} lbo={lbo} cfg={cfg} co={co}/>,
     scenarios:<ScenSection cfg={cfg} co={co}/>,
+    comps:    <CompsSection lbo={lbo} dcf={dcf} cfg={cfg} co={co}/>,
     ma:       <MASection cfg={cfg} co={co} dcf={dcf} maC={maC} setMaC={setMaC}/>,
   };
 
@@ -1147,6 +1683,11 @@ function App(){
         {[{l:'IRR',v:fI(lbo.irr),c:iFg(lbo.irr)},{l:'MOIC',v:fX(lbo.moic),c:mFg(lbo.moic)},{l:'WACC',v:fP(dcf.wacc),c:'#8b949e'},{l:'DCF EV',v:fM(dcf.evGG),c:'#8b949e'}].map(k=>(
           <div key={k.l} className="mini-kpi"><span className="mkl">{k.l}</span><span className="mkv" style={{color:k.c}}>{k.v}</span></div>
         ))}
+        <button onClick={handleReset} style={{marginTop:10,width:'100%',padding:'5px 0',borderRadius:5,border:'1px solid #30363d',background:'transparent',color:'#484f58',fontSize:10,fontWeight:600,cursor:'pointer',textTransform:'uppercase',letterSpacing:'.06em',transition:'all .12s'}}
+          onMouseEnter={e=>{e.target.style.borderColor='#f85149';e.target.style.color='#f85149';}}
+          onMouseLeave={e=>{e.target.style.borderColor='#30363d';e.target.style.color='#484f58';}}>
+          ↺ Reset Inputs
+        </button>
       </div>
     </div>
     <div className="main">{sections[nav]}</div>
