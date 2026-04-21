@@ -1634,8 +1634,8 @@ function BSSection(){
 
   // Vol surface — price vs sigma
   const vols=[];
-  for(let i=0;i<=20;i++){
-    const v=5+i*3;
+  for(let i=0;i<=30;i++){
+    const v=1+i*5;
     const b=buildBS(S,K,Ty,r/100,v/100,q/100);
     vols.push({v,price:b?(optType==='call'?b.call:b.put):0});
   }
@@ -1734,9 +1734,9 @@ function BSSection(){
             <svg width={VW} height={VH+16} style={{overflow:'visible'}}>
               <polyline points={volPts} fill="none" stroke={optType==='call'?'#3fb950':'#f85149'} strokeWidth={2} strokeLinejoin="round"/>
               {/* current vol dot */}
-              {(()=>{const vi=(sigma-5)/3;const vx=(vi/20)*VW;const b=buildBS(S,K,Ty,r/100,sigma/100,q/100);const vp=b?(optType==='call'?b.call:b.put):0;const vy=VH-(vp/maxVPrice)*VH;return<circle cx={vx} cy={vy} r={4} fill={optType==='call'?'#3fb950':'#f85149'}/>;})()}
-              <text x={0} y={VH+14} fontSize={9} fill="#484f58">5%</text>
-              <text x={VW-12} y={VH+14} fontSize={9} fill="#484f58">65%</text>
+              {(()=>{const vi=(sigma-1)/5;const vx=(vi/30)*VW;const b=buildBS(S,K,Ty,r/100,sigma/100,q/100);const vp=b?(optType==='call'?b.call:b.put):0;const vy=VH-(vp/(maxVPrice||1))*VH;return<circle cx={Math.max(0,Math.min(VW,vx))} cy={vy} r={4} fill={optType==='call'?'#3fb950':'#f85149'}/>;})()}
+              <text x={0} y={VH+14} fontSize={9} fill="#484f58">1%</text>
+              <text x={VW-16} y={VH+14} fontSize={9} fill="#484f58">150%</text>
               <text x={VW/2} y={VH+14} textAnchor="middle" fontSize={9} fill="#6e7681">σ</text>
             </svg>
           </div>
@@ -1831,24 +1831,27 @@ function BSSection(){
 
 // ── Quick Controls Panel ──────────────────────────────────────────────────────
 function QuickControls({cfg,setCfg,co,nav}){
-  const[open,setOpen]=useState(false);
-  if(nav==='inputs')return null; // redundant on inputs page
+  const[open,setOpen]=useState(true);
+  if(nav==='inputs'||nav==='bs')return null;
   const Sl=({label,k,min,max,step,fmt})=>(
-    <div style={{marginBottom:10}}>
-      <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
+    <div style={{marginBottom:11}}>
+      <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
         <span style={{fontSize:9,color:'#8b949e',textTransform:'uppercase',letterSpacing:'.05em'}}>{label}</span>
-        <span style={{fontSize:10,fontFamily:'DM Mono',color:'#e6edf3'}}>{fmt?fmt(cfg[k]):cfg[k]}</span>
+        <span style={{fontSize:11,fontFamily:'DM Mono',color:'#e6edf3',fontWeight:500}}>{fmt?fmt(cfg[k]):cfg[k]}</span>
       </div>
       <input type="range" min={min} max={max} step={step} value={cfg[k]}
-        onChange={e=>setCfg(p=>({...p,[k]:parseFloat(e.target.value)}))}/>
+        onChange={e=>setCfg(p=>({...p,[k]:parseFloat(e.target.value)}))}
+        style={{width:'100%',accentColor:'#2d7dd2'}}/>
     </div>
   );
   return(
-    <div style={{position:'fixed',bottom:20,right:20,zIndex:300,width:open?260:44}}>
+    <div style={{position:'fixed',bottom:24,right:24,zIndex:300}}>
       {open&&(
-        <div style={{background:'#161b22',border:'1px solid #30363d',borderRadius:10,padding:16,marginBottom:8,boxShadow:'0 8px 32px rgba(0,0,0,.6)'}}>
-          <div style={{fontSize:10,fontWeight:700,color:'#6e7681',textTransform:'uppercase',letterSpacing:'.1em',marginBottom:14}}>Quick Controls</div>
-          <div style={{fontSize:9,color:'#484f58',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:8}}>Scenario</div>
+        <div style={{background:'#161b22',border:'1px solid #2d7dd2',borderRadius:12,padding:18,marginBottom:10,boxShadow:'0 12px 40px rgba(0,0,0,.7)',width:252}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+            <span style={{fontSize:10,fontWeight:700,color:'#58a6ff',textTransform:'uppercase',letterSpacing:'.1em'}}>⚡ Quick Controls</span>
+            <button onClick={()=>setOpen(false)} style={{background:'none',border:'none',color:'#6e7681',cursor:'pointer',fontSize:14,padding:0}}>✕</button>
+          </div>
           <div style={{display:'flex',gap:4,marginBottom:14}}>
             {[['bear','#f85149'],['base','#2d7dd2'],['bull','#3fb950']].map(([s,c])=>(
               <button key={s} onClick={()=>setCfg(p=>({...p,scenario:s}))}
@@ -1861,15 +1864,17 @@ function QuickControls({cfg,setCfg,co,nav}){
           <Sl label="Leverage"       k="leverageTurns"  min={3} max={7}  step={.25} fmt={v=>`${v.toFixed(2)}x`}/>
           <Sl label="Rev Growth"     k="revenueGrowthBase" min={2} max={15} step={.5} fmt={v=>`${v.toFixed(1)}%`}/>
           <Sl label="EBITDA Margin"  k="ebitdaMarginBase"  min={10} max={35} step={.5} fmt={v=>`${v.toFixed(1)}%`}/>
-          <div style={{borderTop:'1px solid #21262d',paddingTop:10,marginTop:4,fontSize:9,color:'#484f58'}}>
-            LTM EBITDA: <span style={{fontFamily:'DM Mono',color:'#6e7681'}}>${co.ltmEBITDA}M</span> &nbsp;|&nbsp;
-            LTM Rev: <span style={{fontFamily:'DM Mono',color:'#6e7681'}}>${co.ltmRevenue}M</span>
+          <div style={{borderTop:'1px solid #21262d',paddingTop:8,marginTop:6,display:'flex',justifyContent:'space-between',fontSize:9,color:'#484f58'}}>
+            <span>EBITDA <span style={{fontFamily:'DM Mono',color:'#6e7681'}}>${co.ltmEBITDA}M</span></span>
+            <span>Rev <span style={{fontFamily:'DM Mono',color:'#6e7681'}}>${co.ltmRevenue}M</span></span>
           </div>
         </div>
       )}
-      <button onClick={()=>setOpen(o=>!o)} style={{width:44,height:44,borderRadius:10,border:'1px solid #30363d',background:open?'#2d7dd2':'#161b22',color:open?'#fff':'#8b949e',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 4px 16px rgba(0,0,0,.5)',marginLeft:'auto'}}>
-        {open?'✕':'⚙'}
-      </button>
+      {!open&&(
+        <button onClick={()=>setOpen(true)} style={{width:46,height:46,borderRadius:12,border:'1px solid #2d7dd2',background:'#161b22',color:'#58a6ff',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 4px 20px rgba(45,125,210,.35)',marginLeft:'auto'}}>
+          ⚡
+        </button>
+      )}
     </div>
   );
 }
